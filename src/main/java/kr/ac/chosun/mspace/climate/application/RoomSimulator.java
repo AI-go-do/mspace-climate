@@ -41,6 +41,11 @@ public class RoomSimulator {
         public static final Visitors NONE = new Visitors(Map.of(), 0, 0, 0, 0);
     }
 
+    static final double WANDER_KEEP = 0.95;   // 1초에 5%씩 0으로(약 20초 주기)
+    static final double WANDER_STEP = Math.sqrt(1 - WANDER_KEEP * WANDER_KEEP);
+    static final double WANDER_CO2 = 8;
+    static final double WANDER_TEMP = 0.05;
+    static final double WANDER_HUM = 0.12;
     static final double OUTDOOR_CO2 = 520;   // 건물 안 빈 방 수준(실습실 새벽 550 안팎)
     static final double CO2_PER_PERSON = 3.0;     // ppm/분
     static final double CO2_LEAK = 0.02;          // /분 (문틈·공조로 빠지는 속도. 4명이면 1000ppm 안팎에서 멈춤)
@@ -145,15 +150,27 @@ public class RoomSimulator {
         }
     }
 
-    /** 지금 값(센서가 재는 것처럼 작은 흔들림을 더함) */
+    /**
+     * 지금 값. 실제 센서처럼 두 가지 흔들림을 더한다(재웅 11/12 "몇 초마다 움직이는 걸 보고 싶다").
+     * 천천히 오르내리는 흔들림(약 20초 주기, 공기 흐름) + 매번 다른 잔떨림(측정 오차).
+     * 크기는 실측(lab-1min, 새벽 조용한 때 1분 차이 CO2 2~16ppm·온도 0.04~0.08℃·습도 0.14~0.21%)에 맞춤
+     */
     public synchronized List<State> read() {
         List<State> out = new ArrayList<>();
         for (Room r : rooms.values()) {
-            out.add(new State(r.id, Math.max(OUTDOOR_CO2 - 20, r.co2 + random.nextGaussian() * 4),
-                    r.temp + random.nextGaussian() * 0.03, clamp(r.hum + random.nextGaussian() * 0.2, 5, 95),
+            r.wCo2 = wander(r.wCo2, WANDER_CO2);
+            r.wTemp = wander(r.wTemp, WANDER_TEMP);
+            r.wHum = wander(r.wHum, WANDER_HUM);
+            out.add(new State(r.id, Math.max(OUTDOOR_CO2 - 20, r.co2 + r.wCo2 + random.nextGaussian() * 4),
+                    r.temp + r.wTemp + random.nextGaussian() * 0.02, clamp(r.hum + r.wHum + random.nextGaussian() * 0.08, 5, 95),
                     r.occupied, r.event, r.occupied ? r.people : null, r.occupied ? r.nextAt : null));
         }
         return out;
+    }
+
+    /** 한 번 읽을 때(1초)마다 조금씩 0 쪽으로 돌아가며 떠도는 값. 오래 보면 표준편차가 sd */
+    private double wander(double w, double sd) {
+        return w * WANDER_KEEP + random.nextGaussian() * sd * WANDER_STEP;
     }
 
     /** 가상 방: 때가 되면 들어오고 나간다 */
@@ -214,6 +231,9 @@ public class RoomSimulator {
         Instant nextAt;       // 가상 방: 다음 입실(빈 방) 또는 퇴실(사용 중) 시각
         String event;
         double eventLeft;
+        double wCo2;          // 센서 흔들림(천천히 떠도는 몫)
+        double wTemp;
+        double wHum;
 
         Room(int id) {
             this.id = id;
