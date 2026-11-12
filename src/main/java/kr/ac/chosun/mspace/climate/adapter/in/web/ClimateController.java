@@ -87,8 +87,10 @@ class ClimateController {
         List<RoomView> out = new ArrayList<>();
         for (int id : store.roomIds()) {
             RoomAnalysis a = analyzer.analyze(store.view(id));
-            out.add(RoomView.of(a, facade.states(id), props.derive() != null && props.derive().derived(id)
-                    && !intake.directRooms().contains(id)));
+            String source = intake.directRooms().contains(id) && !intake.replayRooms().contains(id) ? "REAL"
+                    : intake.replayRooms().contains(id) ? "REPLAY"
+                    : props.derive() != null && props.derive().derived(id) ? "DERIVED" : "REAL";
+            out.add(RoomView.of(a, facade.states(id), source));
         }
         return Map.of("now", Times.kst(clock.instant()), "rooms", out);
     }
@@ -202,12 +204,12 @@ class ClimateController {
 
     // ---------- 응답 모양 ----------
 
-    /** source: REAL(실제 센서) / DERIVED(실습실 실제 값으로 만든 시뮬레이션 값) */
+    /** source: REAL(실제 센서) / DERIVED(실습실 값으로 만든 시뮬레이션 값) / REPLAY(멈춘 센서 대신 실측 녹화 재생) */
     record RoomView(int roomId, String roomName, String source, Boolean occupied, boolean auto, boolean offline,
                     String envAt, Map<Metric, MetricView> metrics, List<FindingView> findings,
                     List<ApplianceView> appliances) {
 
-        static RoomView of(RoomAnalysis a, List<ApplianceState> states, boolean derived) {
+        static RoomView of(RoomAnalysis a, List<ApplianceState> states, String source) {
             Map<Metric, MetricView> m = new EnumMap<>(Metric.class);
             a.metrics().forEach((k, v) -> m.put(k, new MetricView(k.unit(),
                     v.latest() == null ? null : v.latest().value(),
@@ -215,7 +217,7 @@ class ClimateController {
                     v.forecast().slopePerMinute(), v.forecast().etaMinutes(),
                     v.forecast().towards() == null ? null : v.forecast().towards().name(),
                     status(v))));
-            return new RoomView(a.roomId(), a.name(), derived ? "DERIVED" : "REAL", a.occupied(), a.auto(), a.offline(), Times.kst(a.envAt()), m,
+            return new RoomView(a.roomId(), a.name(), source, a.occupied(), a.auto(), a.offline(), Times.kst(a.envAt()), m,
                     a.findings().stream().map(FindingView::of).toList(),
                     states.stream().map(ApplianceView::of).toList());
         }
