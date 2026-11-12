@@ -36,18 +36,18 @@ public final class AnomalyDetector {
         String name = label(metric);
         if (b.upper() != null && v >= b.upper()) {
             out.add(new Finding(Finding.Kind.OVER, metric,
-                    "%s %s%s, 이 방 기준 %s%s를 넘었어요".formatted(name, fmt(v), metric.unit(), fmt(b.upper()), metric.unit()),
+                    "%s %s%s, 이 방 기준 %s%s를 넘었어요".formatted(name, metric.format(v), metric.unit(), metric.format(b.upper()), metric.unit()),
                     0));
         } else if (b.lower() != null && v <= b.lower()) {
             out.add(new Finding(Finding.Kind.UNDER, metric,
-                    "%s %s%s, 이 방 기준 %s%s보다 낮아요".formatted(name, fmt(v), metric.unit(), fmt(b.lower()), metric.unit()),
+                    "%s %s%s, 이 방 기준 %s%s보다 낮아요".formatted(name, metric.format(v), metric.unit(), metric.format(b.lower()), metric.unit()),
                     0));
         } else if (f.etaMinutes() != null && f.etaMinutes() <= lead.toMinutes()) {
             boolean up = f.towards() == Forecast.Boundary.UPPER;
             out.add(new Finding(up ? Finding.Kind.RISING_SOON : Finding.Kind.FALLING_SOON, metric,
                     "%s가 1분에 %s%s씩 %s 중이에요. %d분 뒤 이 방 기준 %s%s에 닿을 것 같아요".formatted(name,
-                            fmt(Math.abs(f.slopePerMinute())), metric.unit(), up ? "오르는" : "내리는", f.etaMinutes(),
-                            fmt(up ? b.upper() : b.lower()), metric.unit()),
+                            metric.formatRate(f.slopePerMinute()), metric.unit(), up ? "오르는" : "내리는", f.etaMinutes(),
+                            metric.format(up ? b.upper() : b.lower()), metric.unit()),
                     f.etaMinutes()));
         }
         if (recent.size() >= 2) {
@@ -55,8 +55,8 @@ public final class AnomalyDetector {
             boolean adjacent = Duration.between(prev.at(), last.at()).toMinutes() <= 2;
             if (adjacent && Math.abs(v - prev.value()) > rule.spikeJump()) {
                 out.add(new Finding(Finding.Kind.SPIKE, metric,
-                        "%s가 1분 사이 %s%s → %s%s로 튀었어요. 센서를 확인해 주세요".formatted(name, fmt(prev.value()),
-                                metric.unit(), fmt(v), metric.unit()), null));
+                        "%s가 1분 사이 %s%s → %s%s로 튀었어요. 센서를 확인해 주세요".formatted(name, metric.format(prev.value()),
+                                metric.unit(), metric.format(v), metric.unit()), null));
             }
         }
         Instant from = now.minus(stuck);
@@ -64,7 +64,7 @@ public final class AnomalyDetector {
         if (window.size() >= stuck.toMinutes() / 2 && window.stream().allMatch(s -> s.value() == v)
                 && !window.get(0).at().isAfter(from.plus(Duration.ofMinutes(5)))) {
             out.add(new Finding(Finding.Kind.STUCK, metric,
-                    "%s가 %d분째 %s%s 그대로예요. 센서가 멈췄을 수 있어요".formatted(name, stuck.toMinutes(), fmt(v),
+                    "%s가 %d분째 %s%s 그대로예요. 센서가 멈췄을 수 있어요".formatted(name, stuck.toMinutes(), metric.format(v),
                             metric.unit()), null));
         }
         return out;
@@ -78,7 +78,4 @@ public final class AnomalyDetector {
         };
     }
 
-    static String fmt(double v) {
-        return v == Math.rint(v) ? Long.toString((long) v) : String.format("%.1f", v);
-    }
 }

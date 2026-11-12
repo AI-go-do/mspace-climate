@@ -167,9 +167,9 @@ public class ClimateAgent {
         Double mean = t.baseline().mean();
         double v = t.latest().value();
         if (mode == ApplianceCommand.Mode.COOL && mean != null && v <= mean) {
-            facade.airconOff(room, "온도 %s°C, 이 방 평소(%s°C)로 돌아와 껐어요".formatted(fmt(v), fmt(mean)));
+            facade.airconOff(room, "온도 %s°C, 이 방 평소(%s°C)로 돌아와 껐어요".formatted(Metric.TEMPERATURE.format(v), Metric.TEMPERATURE.format(mean)));
         } else if (mode == ApplianceCommand.Mode.HEAT && mean != null && v >= mean) {
-            facade.airconOff(room, "온도 %s°C, 이 방 평소(%s°C)로 돌아와 껐어요".formatted(fmt(v), fmt(mean)));
+            facade.airconOff(room, "온도 %s°C, 이 방 평소(%s°C)로 돌아와 껐어요".formatted(Metric.TEMPERATURE.format(v), Metric.TEMPERATURE.format(mean)));
         }
         return mode == ApplianceCommand.Mode.COOL || mode == ApplianceCommand.Mode.HEAT;
     }
@@ -187,8 +187,8 @@ public class ClimateAgent {
         }
         Double mean = h.baseline().mean();
         if (airconMode(room) == ApplianceCommand.Mode.DRY && mean != null && h.latest().value() <= mean) {
-            facade.airconOff(room, "습도 %s%%, 이 방 평소(%s%%)로 돌아와 껐어요".formatted(fmt(h.latest().value()),
-                    fmt(mean)));
+            facade.airconOff(room, "습도 %s%%, 이 방 평소(%s%%)로 돌아와 껐어요".formatted(Metric.HUMIDITY.format(h.latest().value()),
+                    Metric.HUMIDITY.format(mean)));
         }
     }
 
@@ -206,7 +206,7 @@ public class ClimateAgent {
         }
         Double mean = c.baseline().mean();
         if (mean != null && c.latest().value() <= mean) {
-            String why = "CO2 %sppm, 이 방 평소(%sppm)로 돌아와 껐어요".formatted(fmt(c.latest().value()), fmt(mean));
+            String why = "CO2 %sppm, 이 방 평소(%sppm)로 돌아와 껐어요".formatted(Metric.CO2.format(c.latest().value()), Metric.CO2.format(mean));
             facade.set(room, ApplianceKind.VENTILATOR, false, why);
             facade.set(room, ApplianceKind.PURIFIER, false, why);
         }
@@ -346,17 +346,17 @@ public class ClimateAgent {
         if (m == null || m.latest() == null) {
             return f.message();
         }
-        String v = label(f.metric()) + " " + fmt(m.latest().value()) + f.metric().unit();
+        String v = label(f.metric()) + " " + f.metric().format(m.latest().value()) + f.metric().unit();
         Double mean = m.baseline().mean();
         if (!f.actionable() || mean == null) {
             return v;
         }
-        return "%s (이 방 평소 %s%s)".formatted(v, fmt(mean), f.metric().unit());
+        return "%s (이 방 평소 %s%s)".formatted(v, f.metric().format(mean), f.metric().unit());
     }
 
     private static String now(RoomAnalysis a, Metric metric) {
         var m = a.metrics().get(metric);
-        return m == null || m.latest() == null ? "" : " " + fmt(m.latest().value()) + metric.unit() + ",";
+        return m == null || m.latest() == null ? "" : " " + metric.format(m.latest().value()) + metric.unit() + ",";
     }
 
     private static String controlText(List<Action> acts) {
@@ -425,9 +425,5 @@ public class ClimateAgent {
             return (min + max) / 2;
         }
         return (int) Math.max(min, Math.min(max, Math.round(b.mean())));
-    }
-
-    private static String fmt(double v) {
-        return v == Math.rint(v) ? Long.toString((long) v) : String.format("%.1f", v);
     }
 }
