@@ -56,6 +56,8 @@ public class ClimateAgent {
     private final Clock clock;
     private final DecisionBook decisions;
     private final boolean reachesStudents;
+    /** 판단 에이전트(제미나이). 없거나 키가 없으면 규칙만으로 켠다 */
+    private volatile Judge judge;
 
     public ClimateAgent(ClimateStore store, RoomAnalyzer analyzer, ClimateFacade facade, AlertLog alerts,
                         ClimateProperties props, Clock clock, DecisionBook decisions, boolean reachesStudents) {
@@ -67,6 +69,19 @@ public class ClimateAgent {
         this.alerts = alerts;
         this.props = props;
         this.clock = clock;
+    }
+
+    /**
+     * 판단 에이전트를 붙인다(재웅 11/12 "실제로 판단"). 붙어 있으면 새 이상이 생긴 방은 규칙이 켜지 않고 에이전트에게 맡긴다.
+     * 끄기(평소로 돌아옴·빈 방)는 그대로 규칙이 한다(안전한 쪽)
+     */
+    public void useJudge(Judge judge) {
+        this.judge = judge;
+    }
+
+    private boolean judging() {
+        Judge j = judge;
+        return j != null && j.enabled();
     }
 
     /** 모든 방 한 바퀴. 한 방에서 오류가 나도 다른 방은 계속 본다 */
@@ -89,12 +104,16 @@ public class ClimateAgent {
         Map<String, Alert> sent = raiseAlerts(a);
         Map<Metric, List<Action>> acted = new EnumMap<>(Metric.class);
         Map<Metric, String> skip = new EnumMap<>(Metric.class);
-        String why = control(a, acted, skip);
-        record(a, sent, acted, skip, why);
+        boolean judged = judging();
+        String why = control(a, acted, skip, !judged);
+        record(a, sent, acted, skip, why, judged);
     }
 
-    /** 기기 조작. 안 움직였으면 왜 안 움직였는지 돌려준다(판단 카드 제어 단계 문구) */
-    private String control(RoomAnalysis a, Map<Metric, List<Action>> acted, Map<Metric, String> skip) {
+    /**
+     * 기기 조작. 안 움직였으면 왜 안 움직였는지 돌려준다(판단 카드 제어 단계 문구).
+     * allowOn=false면 켜기는 하지 않는다(판단 에이전트가 고름). 끄기는 그대로
+     */
+    private String control(RoomAnalysis a, Map<Metric, List<Action>> acted, Map<Metric, String> skip, boolean allowOn) {
         if (!a.auto()) {
             return "자동 제어를 꺼 둔 방이라 기기는 그대로예요";
         }
@@ -114,17 +133,17 @@ public class ClimateAgent {
             return "빈 방이라 켜지 않았어요";
         }
         Action head = head();
-        boolean airconBusy = temperature(a);
+        boolean airconBusy = temperature(a, allowOn);
         acted.put(Metric.TEMPERATURE, since(head));
         head = head();
         if (airconBusy) {
             skip.put(Metric.HUMIDITY, "에어컨이 냉난방 중이라 제습은 미뤘어요");
         } else {
-            humidity(a);
+            humidity(a, allowOn);
             acted.put(Metric.HUMIDITY, since(head));
         }
         head = head();
-        co2(a);
+        co2(a, allowOn);
         acted.put(Metric.CO2, since(head));
         return null;
     }
@@ -146,7 +165,7 @@ public class ClimateAgent {
     }
 
     /** 에어컨을 냉·난방으로 쓰는 중이면 true */
-    private boolean temperature(RoomAnalysis a) {
+    private boolean temperature(RoomAnalysis a, boolean allowOn) {
         var t = a.metrics().get(Metric.TEMPERATURE);
         if (t.latest() == null) {
             return false;
@@ -154,6 +173,9 @@ public class ClimateAgent {
         Finding hot = t.first(Kind.OVER, Kind.RISING_SOON);
         Finding cold = t.first(Kind.UNDER, Kind.FALLING_SOON);
         int room = a.roomId();
+        if ((hot != null || cold != null) && !allowOn) {
+            return airconMode(room) == ApplianceCommand.Mode.COOL || airconMode(room) == ApplianceCommand.Mode.HEAT;
+        }
         if (hot != null) {
             int target = target(t.baseline(), props.comfort().coolMin(), props.comfort().coolMax());
             facade.cool(room, target, hot.message() + " → 냉방 %d도".formatted(target));
@@ -175,13 +197,16 @@ public class ClimateAgent {
         return mode == ApplianceCommand.Mode.COOL || mode == ApplianceCommand.Mode.HEAT;
     }
 
-    private void humidity(RoomAnalysis a) {
+    private void humidity(RoomAnalysis a, boolean allowOn) {
         var h = a.metrics().get(Metric.HUMIDITY);
         if (h.latest() == null) {
             return;
         }
         Finding wet = h.first(Kind.OVER, Kind.RISING_SOON);
         int room = a.roomId();
+        if (wet != null && !allowOn) {
+            return;
+        }
         if (wet != null) {
             facade.dry(room, wet.message() + " → 제습");
             return;
@@ -193,13 +218,16 @@ public class ClimateAgent {
         }
     }
 
-    private void co2(RoomAnalysis a) {
+    private void co2(RoomAnalysis a, boolean allowOn) {
         var c = a.metrics().get(Metric.CO2);
         if (c.latest() == null) {
             return;
         }
         Finding high = c.first(Kind.OVER, Kind.RISING_SOON);
         int room = a.roomId();
+        if (high != null && !allowOn) {
+            return;
+        }
         if (high != null) {
             facade.set(room, ApplianceKind.VENTILATOR, true, high.message() + " → 환풍기");
             facade.set(room, ApplianceKind.PURIFIER, true, "창문 환기 중 들어오는 먼지 거르기 (공기청정기는 CO2를 못 낮춰요)");
@@ -233,8 +261,10 @@ public class ClimateAgent {
     // ---------- 판단 카드 ----------
 
     private void record(RoomAnalysis a, Map<String, Alert> sent, Map<Metric, List<Action>> acted,
-                        Map<Metric, String> skip, String why) {
+                        Map<Metric, String> skip, String why, boolean judged) {
         Instant now = clock.instant();
+        List<String> handIds = new ArrayList<>();
+        List<String> handFindings = new ArrayList<>();
         Map<String, Finding> seen = new HashMap<>();
         for (Finding f : a.findings()) {
             seen.putIfAbsent(Decision.key(a.roomId(), f.metric(), group(f.kind())), f);
@@ -246,6 +276,12 @@ public class ClimateAgent {
                     ? acted.getOrDefault(f.metric(), List.of()) : List.of();
             if (d == null) {
                 d = opened(a, f, sent.get(e.getKey()), acts, skip.get(f.metric()), why, now);
+                if (judged && why == null && acts.isEmpty() && needsDevice(f)) {
+                    // 규칙은 켜지 않았다. 켤 기기는 판단 에이전트가 고른다(화면에는 "고르는 중" 로딩)
+                    d = d.with(Step.CONTROL, Status.RUNNING, "오디 AI가 켤 기기를 고르는 중", now);
+                    handIds.add(d.id());
+                    handFindings.add(detect(a, f) + ". " + predict(a, f));
+                }
                 decisions.put(d);
                 continue;
             }
@@ -272,6 +308,9 @@ public class ClimateAgent {
             if (!next.equals(d)) {
                 decisions.put(next);
             }
+        }
+        if (!handIds.isEmpty()) {
+            judge.ask(new Judge.Request(a.roomId(), a.name(), List.copyOf(handIds), List.copyOf(handFindings)), judgeListener);
         }
         if (a.offline()) {
             return; // 값이 안 오는 동안은 돌아왔는지 알 수 없다
@@ -312,6 +351,74 @@ public class ClimateAgent {
                 : "평소 범위로 돌아오는지 보는 중", now));
         return new Decision(UUID.randomUUID().toString(), a.roomId(), a.name(), f.metric(), group(f.kind()), f.kind(),
                 now, null, steps);
+    }
+
+    /** 규칙이라면 기기를 켰을 이상인가: 온도(냉·난방), 습도 높음(제습), CO2 높음(환풍기) */
+    private static boolean needsDevice(Finding f) {
+        if (!f.actionable() || f.metric() == null) {
+            return false;
+        }
+        boolean high = group(f.kind()).equals("HIGH");
+        return f.metric() == Metric.TEMPERATURE || high;
+    }
+
+    // ---------- 판단 에이전트 결과 ----------
+
+    private final Judge.Listener judgeListener = new Judge.Listener() {
+        @Override
+        public void progress(Judge.Request r, String text) {
+            judgeUpdate(r, Status.RUNNING, text);
+        }
+
+        @Override
+        public void done(Judge.Request r, List<String> did, String reason) {
+            String what = did.isEmpty() ? "켤 기기 없음" : String.join(", ", did);
+            String text = reason == null || reason.isBlank() ? what : what + " · " + reason.strip();
+            judgeUpdate(r, did.isEmpty() ? Status.SKIPPED : Status.DONE, text);
+        }
+
+        @Override
+        public void fallback(Judge.Request r, String why) {
+            judgeFallback(r, why);
+        }
+    };
+
+    private synchronized void judgeUpdate(Judge.Request r, Status status, String text) {
+        Instant now = clock.instant();
+        for (String id : r.decisionIds()) {
+            Decision d = decisions.byId(id);
+            if (d != null && d.step(Step.CONTROL).status() == Status.RUNNING) {
+                decisions.put(d.with(Step.CONTROL, status, text, now));
+            }
+        }
+    }
+
+    /** 맡기지 못했으면 규칙이 지금 그 방을 다시 보고 켠다 */
+    private synchronized void judgeFallback(Judge.Request r, String why) {
+        Instant now = clock.instant();
+        Map<Metric, List<Action>> acted = new EnumMap<>(Metric.class);
+        Map<Metric, String> skip = new EnumMap<>(Metric.class);
+        String stop;
+        try {
+            stop = control(analyzer.analyze(store.view(r.roomId())), acted, skip, true);
+        } catch (RuntimeException e) {
+            log.warn("방 {} 규칙 대신 켜기 실패: {}", r.roomId(), e.getClass().getSimpleName());
+            stop = "기기를 움직이지 못했어요";
+        }
+        for (String id : r.decisionIds()) {
+            Decision d = decisions.byId(id);
+            if (d == null || d.step(Step.CONTROL).status() != Status.RUNNING) {
+                continue;
+            }
+            List<Action> acts = d.metric() == null ? List.of() : acted.getOrDefault(d.metric(), List.of());
+            String head = "규칙으로 판단(" + why + "): ";
+            if (acts.isEmpty()) {
+                String none = stop != null ? stop : skip.getOrDefault(d.metric(), "켤 기기 없음");
+                decisions.put(d.with(Step.CONTROL, Status.SKIPPED, head + none, now));
+            } else {
+                decisions.put(d.with(Step.CONTROL, failed(acts) ? Status.FAILED : Status.DONE, head + controlText(acts), now));
+            }
+        }
     }
 
     private String noControl(int room, Finding f, String skip, String why) {

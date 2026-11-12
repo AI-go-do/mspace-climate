@@ -273,4 +273,90 @@ class ClimateAgentTest {
         assertThat(d.step(Decision.Step.CONTROL).status()).isEqualTo(Decision.Status.SKIPPED);
         assertThat(d.step(Decision.Step.VERIFY).status()).isEqualTo(Decision.Status.RUNNING);
     }
+
+    /** 손으로 답하는 가짜 판단기: 받은 요청과 답 통로만 들고 있는다 */
+    static class FakeJudge implements Judge {
+        final List<Request> asked = new ArrayList<>();
+        Listener listener;
+
+        @Override
+        public boolean enabled() {
+            return true;
+        }
+
+        @Override
+        public void ask(Request request, Listener l) {
+            asked.add(request);
+            listener = l;
+        }
+    }
+
+    @Test
+    @DisplayName("판단 에이전트: 켜야 할 일이면 규칙은 켜지 않고 오디 AI에게 넘기며, 제어 단계는 고르는 중으로 남는다")
+    void judgeTakesOn() {
+        FakeJudge judge = new FakeJudge();
+        agent.useJudge(judge);
+        store.setOccupancy(1, true, clock.instant());
+        feed(20, 24, 0, 680, 10);
+
+        agent.tick();
+
+        assertThat(purifier().power()).isEqualTo(ApplianceCommand.Power.OFF);
+        assertThat(judge.asked).hasSize(1);
+        assertThat(judge.asked.get(0).roomId()).isEqualTo(1);
+        assertThat(judge.asked.get(0).findings()).anyMatch(f -> f.contains("CO2"));
+        Decision d = co2Card();
+        assertThat(d.step(Decision.Step.CONTROL).status()).isEqualTo(Decision.Status.RUNNING);
+        assertThat(judge.asked.get(0).decisionIds()).contains(d.id());
+    }
+
+    @Test
+    @DisplayName("판단 에이전트: 오디 AI가 기기를 바꾸면 제어 단계에 한 일과 이유가 남는다")
+    void judgeDone() {
+        FakeJudge judge = new FakeJudge();
+        agent.useJudge(judge);
+        store.setOccupancy(1, true, clock.instant());
+        feed(20, 24, 0, 680, 10);
+        agent.tick();
+
+        judge.listener.progress(judge.asked.get(0), "공기청정기 켜는 중");
+        assertThat(co2Card().step(Decision.Step.CONTROL).text()).isEqualTo("공기청정기 켜는 중");
+        judge.listener.done(judge.asked.get(0), List.of("공기청정기 켬"), "CO2가 오르고 있어 공기청정기를 켰어요");
+
+        Decision d = co2Card();
+        assertThat(d.step(Decision.Step.CONTROL).status()).isEqualTo(Decision.Status.DONE);
+        assertThat(d.step(Decision.Step.CONTROL).text()).contains("공기청정기 켬").contains("CO2가 오르고 있어");
+    }
+
+    @Test
+    @DisplayName("판단 에이전트: 오디 AI가 답을 못 하면 규칙이 대신 켜고 '규칙으로 판단'이라고 밝힌다")
+    void judgeFallback() {
+        FakeJudge judge = new FakeJudge();
+        agent.useJudge(judge);
+        store.setOccupancy(1, true, clock.instant());
+        feed(20, 24, 0, 680, 10);
+        agent.tick();
+
+        judge.listener.fallback(judge.asked.get(0), "제미나이 응답 없음");
+
+        assertThat(purifier().power()).isEqualTo(ApplianceCommand.Power.ON);
+        Decision d = co2Card();
+        assertThat(d.step(Decision.Step.CONTROL).status()).isEqualTo(Decision.Status.DONE);
+        assertThat(d.step(Decision.Step.CONTROL).text()).startsWith("규칙으로 판단(제미나이 응답 없음)");
+    }
+
+    @Test
+    @DisplayName("판단 에이전트: 끄기(빈 방)는 오디 AI에게 묻지 않고 규칙이 바로 한다")
+    void judgeNotForOff() {
+        FakeJudge judge = new FakeJudge();
+        agent.useJudge(judge);
+        facade.cool(1, 25, "앞서 켬");
+        store.setOccupancy(1, false, clock.instant());
+        feed(11, 24, 0, 600, 0);
+
+        agent.tick();
+
+        assertThat(ac().power()).isEqualTo(ApplianceCommand.Power.OFF);
+        assertThat(judge.asked).isEmpty();
+    }
 }

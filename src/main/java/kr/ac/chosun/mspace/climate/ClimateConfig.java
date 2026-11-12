@@ -14,6 +14,8 @@ import kr.ac.chosun.mspace.climate.adapter.in.web.LiveReading;
 import kr.ac.chosun.mspace.climate.adapter.out.CoreRoomStatus;
 import kr.ac.chosun.mspace.climate.adapter.out.LogNotifier;
 import kr.ac.chosun.mspace.climate.adapter.out.SnapshotFile;
+import kr.ac.chosun.mspace.climate.adapter.out.gemini.GeminiJudge;
+import kr.ac.chosun.mspace.climate.adapter.out.gemini.JudgeProperties;
 import kr.ac.chosun.mspace.climate.appliance.Appliance;
 import kr.ac.chosun.mspace.climate.appliance.ApplianceKind;
 import kr.ac.chosun.mspace.climate.appliance.ClimateFacade;
@@ -24,6 +26,7 @@ import kr.ac.chosun.mspace.climate.application.AlertLog;
 import kr.ac.chosun.mspace.climate.application.ClimateAgent;
 import kr.ac.chosun.mspace.climate.application.ClimateProperties;
 import kr.ac.chosun.mspace.climate.application.ClimateStore;
+import kr.ac.chosun.mspace.climate.application.ClimateTools;
 import kr.ac.chosun.mspace.climate.application.DecisionBook;
 import kr.ac.chosun.mspace.climate.application.Notifier;
 import kr.ac.chosun.mspace.climate.application.BoardModel;
@@ -41,6 +44,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import tools.jackson.databind.json.JsonMapper;
 
 /** 부품 조립. 기기 목록은 설정(climate.appliances)에서 어댑터를 골라 만든다 */
 @Configuration
@@ -158,6 +162,24 @@ class ClimateConfig {
     MqttSensorClient mqttSensorClient(MqttProperties m, ReadingIntake intake, SensorRegistry sensors, BoardModel model,
                                       Clock clock) {
         return new MqttSensorClient(m, intake, sensors, model, clock);
+    }
+
+    /** 오디 공기 도구 (MCP로 열림: room_status·set_aircon·set_ventilator·set_purifier). 안전 규칙은 도구 안에 */
+    @Bean
+    ClimateTools climateTools(ClimateStore store, RoomAnalyzer analyzer, ClimateFacade facade, ClimateProperties p,
+                              ReadingIntake intake) {
+        return new ClimateTools(store, analyzer, facade, p, intake::people);
+    }
+
+    /**
+     * 제미나이 판단 에이전트. 키가 있으면 켤 기기를 제미나이가 MCP 도구로 고르고, 없거나 실패하면 규칙이 한다.
+     * 끄기(빈 방·평소로 돌아옴)는 언제나 규칙이 한다
+     */
+    @Bean(destroyMethod = "close")
+    GeminiJudge geminiJudge(JudgeProperties jp, ClimateAgent agent, Clock clock) {
+        GeminiJudge judge = new GeminiJudge(jp, JsonMapper.builder().build(), clock);
+        agent.useJudge(judge);
+        return judge;
     }
 
     @Bean

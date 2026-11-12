@@ -22,7 +22,22 @@
         <java.version>21</java.version>
         <sonar.projectKey>mspace-climate</sonar.projectKey>
         <sonar.coverage.jacoco.xmlReportPaths>${project.build.directory}/site/jacoco/jacoco.xml</sonar.coverage.jacoco.xmlReportPaths>
+        <!-- 비서(mspace-assistant)와 같은 버전: Spring AI 2.0.2는 Boot 4.1.2 기준, MCP SDK 2.1.0은 그 Spring AI가 쓰는 것 -->
+        <spring-ai.version>2.0.2</spring-ai.version>
+        <mcp-sdk.version>2.1.0</mcp-sdk.version>
     </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.springframework.ai</groupId>
+                <artifactId>spring-ai-bom</artifactId>
+                <version>${spring-ai.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
 
     <dependencies>
         <dependency>
@@ -44,6 +59,18 @@
             <groupId>org.eclipse.paho</groupId>
             <artifactId>org.eclipse.paho.client.mqttv3</artifactId>
             <version>1.2.5</version>
+        </dependency>
+        <!-- 공기 도구를 MCP로 연다(재웅 11/12 "climate가 MCP 서버, 판단 에이전트는 MCP로 붙어 도구를 골라 씀").
+             비서(영준)도 같은 도구를 쓸 수 있다. 비서 mcp-server와 같은 스타터 -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-starter-mcp-server-webmvc</artifactId>
+        </dependency>
+        <!-- 판단 에이전트가 위 MCP 서버에 붙는 공식 MCP Java 클라이언트 (비서 agent와 같음) -->
+        <dependency>
+            <groupId>io.modelcontextprotocol.sdk</groupId>
+            <artifactId>mcp</artifactId>
+            <version>${mcp-sdk.version}</version>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>

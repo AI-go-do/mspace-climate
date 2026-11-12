@@ -6,6 +6,16 @@ server:
 spring:
   application:
     name: mspace-climate
+  # 오디 공기 도구를 MCP로 연다(POST /mcp, 게이트웨이는 /api/climate/**만 열어서 밖에서는 안 보임).
+  # 판단 에이전트(제미나이)가 여기로 붙고, 비서도 같은 도구를 쓸 수 있다
+  ai:
+    mcp:
+      server:
+        name: mspace-climate
+        version: 0.1.0
+        type: SYNC
+        protocol: STREAMABLE
+        instructions: "오디 공기 도구. 방 상태를 보고(room_status) 에어컨·환풍기·공기청정기를 켜고 끈다. 빈 방·자동 제어 끈 방·센서 끊긴 방에서는 켜지 않는다"
 
 mspace:
   jwt:
@@ -85,6 +95,17 @@ climate:
     event-every-minutes: 25
     judge-every-seconds: 10
   appliances: []
+  # 제미나이 판단 에이전트 (재웅 11/12). 키가 비면 규칙만으로 판단한다(지금과 같음).
+  # 무료 등급은 비서와 같은 키라 분당 15·하루 500 → 여기서 시간당 4번·하루 40번까지만 묻고, 넘으면 규칙으로
+  judge:
+    enabled: ${CLIMATE_JUDGE_ENABLED:true}
+    api-key: ${GEMINI_API_KEY:}
+    model: ${CLIMATE_JUDGE_MODEL:gemini-3.5-flash-lite}
+    mcp-url: http://localhost:${server.port}   # 자기 자신의 MCP (/mcp는 클라이언트가 붙임)
+    max-per-hour: 4
+    max-per-day: 40
+    max-turns: 5
+    timeout: 15s
   # 실제 공기 센서는 실습실(1번 방) 하나. 2~5번 방은 1번 방 실제 값 + 방마다 작은 차이 + 느린 흔들림으로 만든다(시뮬레이션, 화면에 표시).
   # 실제 센서를 다는 방은 여기서 빼면 그 방 센서 값을 그대로 쓴다
   derive:

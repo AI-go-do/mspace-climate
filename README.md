@@ -41,6 +41,21 @@ climate: 1분마다  재실 읽기(core /api/rooms/status) → 기준선·예측
 7. 평소 값으로 돌아오면 끔. 사람이 손으로 바꾼 기기는 30분 동안 안 건드림
 8. 같은 방·같은 알림은 30분에 한 번
 
+### 켤 기기는 오디 AI(제미나이)가 MCP 도구로 고름
+
+```
+ClimateAgent(규칙) ── 새 이상 + 켜야 할 일 ──▶ GeminiJudge ── MCP(/mcp) ──▶ ClimateMcpTools ──▶ ClimateTools ──▶ ClimateFacade
+      │  끄기(빈 방·평소로 돌아옴)는 규칙이 바로                 │ room_status · set_aircon · set_ventilator · set_purifier
+      └◀── 실패·한도·키 없음이면 규칙이 대신 켬("규칙으로 판단(이유)") ◀┘
+```
+
+- climate가 **MCP 서버**예요. 도구 4개: `room_status`(읽기), `set_aircon`·`set_ventilator`·`set_purifier`(쓰기). 비서도 같은 도구를 붙일 수 있어요
+- **안전 규칙은 도구 안에** 있어요: 빈 방·재실 모름·자동 끔·센서 끊김이면 켜기 거절, 목표 온도는 24~26 / 20~22도 밖이면 거절. 모델이 무엇을 불러도 건너뛸 수 없어요. 끄기는 언제나 돼요
+- 판단 카드의 `CONTROL` 단계가 `RUNNING`("오디 AI가 켤 기기를 고르는 중" → "공기청정기 켜는 중")으로 보이다가, 끝나면 한 일 · 이유 한 문장
+- 숫자(기준선·예측)는 climate가 계산하고 제미나이에는 결과만 줘요. 방 번호·공기 값·기기 상태만 보내고 사람 정보는 안 보내요
+- 무료 한도(비서와 같은 키면 분당 15·하루 500)를 지키려고 **시간당 4번·하루 40번**까지만 묻고, 넘으면 규칙으로 해요
+- `GEMINI_API_KEY`가 비면 지금처럼 규칙만으로 판단해요
+
 예측은 `Forecaster` 포트 뒤에 있어요. 젯슨 시계열 모델(Chronos-2, 실습 모델)은 같은 포트 어댑터로 더하면 돼요.
 
 ## 기기 파사드 (FR-DEV-106)
@@ -87,6 +102,8 @@ DB를 따로 두지 않아요. 센서 원본은 core DB(`sensor_event`)에 있�
 | `CLIMATE_SIM_ENABLED` | `true` | 방 공기 시뮬레이션(1초마다, 기기 반영). 실제 값이 오는 방은 실제 값 |
 | `CLIMATE_REPLAY_ENABLED` | `false` | 센서가 멈췄을 때 실측 녹화 재생(시뮬레이션 대신 쓸 때) |
 | `CLIMATE_MQTT_URI` | `tcp://data.withio.net:1883` | 브로커 |
+| `GEMINI_API_KEY` | (비움) | 켤 기기를 고르는 오디 AI(제미나이). 비면 규칙만(.env에만) |
+| `CLIMATE_JUDGE_ENABLED` · `CLIMATE_JUDGE_MODEL` | `true` · `gemini-3.5-flash-lite` | 판단 에이전트 끄기·모델 바꾸기 |
 | `CLIMATE_MQTT_CLIENT_ID` | `mspace-climate-<임의>` | 같은 이름이 둘이면 브로커가 서로 끊어요(dev·prod·보드 A 수집기) |
 
 숫자(15분·2.5·30분 등)는 `application.yml`의 `climate.*`에 있어요. 기준값 대부분은 첫 판 임시값이라 며칠 실측 뒤 맞춰요.
