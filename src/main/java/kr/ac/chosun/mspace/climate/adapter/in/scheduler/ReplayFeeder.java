@@ -40,7 +40,7 @@ public class ReplayFeeder {
     public void backfill() {
         Instant now = clock.instant();
         int n = 0;
-        for (int m = backfillMinutes; m >= 1; m--) {
+        for (int m = backfillMinutes; m >= 0; m--) { // 지금 분까지 채운다(다음 1분 넣기는 다음 분부터)
             for (SensorReading r : ordered(replay.at(now.minusSeconds(60L * m), spots))) {
                 n += intake.replay(r, true) ? 1 : 0;
             }
