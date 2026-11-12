@@ -115,8 +115,21 @@ class ClimateConfig {
 
     @Bean
     CoreRoomStatus coreRoomStatus(@org.springframework.beans.factory.annotation.Value("${climate.core-uri:http://core:8080}") String core,
-                                  Clock clock) {
-        return new CoreRoomStatus(core, clock);
+                                  Clock clock, ClimateProperties p,
+                                  @org.springframework.beans.factory.annotation.Value("${climate.sim.enabled:false}") boolean sim,
+                                  @org.springframework.beans.factory.annotation.Value("${climate.sim.real-rooms:}") List<Integer> real) {
+        // 시뮬레이션 중이면 실제 방(real-rooms) 말고는 core 재실을 쓰지 않는다(가상 방 손님은 시뮬레이션이 만듦)
+        java.util.Set<Integer> skip = sim ? virtualRooms(p, real) : java.util.Set.of();
+        return new CoreRoomStatus(core, clock, skip);
+    }
+
+    /** 시뮬레이션이 손님을 만드는 방 = 설정한 방 중 real-rooms에 없는 방 */
+    static java.util.Set<Integer> virtualRooms(ClimateProperties p, List<Integer> real) {
+        java.util.Set<Integer> out = new java.util.TreeSet<>(p.rooms().keySet());
+        if (real != null) {
+            out.removeAll(real);
+        }
+        return out;
     }
 
     @Bean
@@ -146,11 +159,26 @@ class ClimateConfig {
     SimFeeder simFeeder(ReadingIntake intake, ClimateStore store, ClimateFacade facade, ClimateProperties p, Clock clock,
                         @org.springframework.beans.factory.annotation.Value("${climate.sim.backfill-minutes:180}") int backfill,
                         @org.springframework.beans.factory.annotation.Value("${climate.sim.event-every-minutes:25}") double eventEvery,
-                        @org.springframework.beans.factory.annotation.Value("${climate.sim.judge-every-seconds:10}") int judgeEvery) {
-        // 사람이 있을 때 가정하는 인원(core가 인원을 안 알려 줌): 1~4번 방 4명, 5번 방 6명
+                        @org.springframework.beans.factory.annotation.Value("${climate.sim.judge-every-seconds:10}") int judgeEvery,
+                        @org.springframework.beans.factory.annotation.Value("${climate.sim.real-rooms:}") List<Integer> real,
+                        @org.springframework.beans.factory.annotation.Value("${climate.sim.big-rooms:5}") List<Integer> big,
+                        @org.springframework.beans.factory.annotation.Value("${climate.sim.people-small:3,5}") List<Integer> small,
+                        @org.springframework.beans.factory.annotation.Value("${climate.sim.people-big:5,8}") List<Integer> bigPeople,
+                        @org.springframework.beans.factory.annotation.Value("${climate.sim.gap-minutes:10,40}") List<Integer> gap,
+                        @org.springframework.beans.factory.annotation.Value("${climate.sim.stay-minutes:50,120}") List<Integer> stay) {
+        // 실제 방에 사람이 있을 때 가정하는 인원(core가 인원을 안 알려 줌): 작은 방은 최소~최대 가운데, 큰 방도 같게
         java.util.Map<Integer, Integer> people = new java.util.LinkedHashMap<>();
-        p.rooms().keySet().stream().sorted().forEach(id -> people.put(id, id == 5 ? 6 : 4));
-        RoomSimulator sim = new RoomSimulator(people, eventEvery, SEOUL, System.nanoTime());
+        java.util.Map<Integer, int[]> range = new java.util.LinkedHashMap<>();
+        java.util.Set<Integer> virtual = virtualRooms(p, real);
+        p.rooms().keySet().stream().sorted().forEach(id -> {
+            List<Integer> r = big.contains(id) ? bigPeople : small;
+            people.put(id, (r.get(0) + r.get(1) + 1) / 2);
+            if (virtual.contains(id)) {
+                range.put(id, new int[] {r.get(0), r.get(1)});
+            }
+        });
+        RoomSimulator sim = new RoomSimulator(people, eventEvery, SEOUL, System.nanoTime(),
+                new RoomSimulator.Visitors(range, gap.get(0), gap.get(1), stay.get(0), stay.get(1)));
         return new SimFeeder(sim, intake, store, facade, List.copyOf(people.keySet()), backfill, judgeEvery, clock);
     }
 

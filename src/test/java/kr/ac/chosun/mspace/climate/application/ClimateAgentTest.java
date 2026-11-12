@@ -164,6 +164,35 @@ class ClimateAgentTest {
         assertThat(facade.recentActions(1).get(0).reason()).contains("평소");
     }
 
+    /** 1분마다 CO2 값 하나(살짝 흔들어 센서 멈춤으로 안 보이게) */
+    void co2For(int minutes, int ppm) {
+        for (int i = 0; i < minutes; i++) {
+            feed(1, 23.0 + (i % 2) * 0.2, 0, ppm + (i % 3) * 6, 0);
+            clock.advance(Duration.ofSeconds(30));
+        }
+    }
+
+    @Test
+    @DisplayName("오래 붐벼 평소 CO2가 기준(1000)보다 높은 방도, 기준 바로 아래(950)에서 끄지 않고 기준-여유폭(850) 아래로 내려와야 끈다")
+    void co2OffBelowLimitNotBusyMean() {
+        // given: 2시간 1200ppm 언저리(평소가 1000보다 높음) → 환기 켜짐
+        store.setOccupancy(1, true, clock.instant());
+        co2For(120, 1200);
+        agent.tick();
+        assertThat(purifier().power()).isEqualTo(ApplianceCommand.Power.ON);
+        // when: 950으로 내려옴(평소 아래지만 기준 바로 밑)
+        co2For(10, 950);
+        agent.tick();
+        // then: 아직 켜 둠
+        assertThat(purifier().power()).isEqualTo(ApplianceCommand.Power.ON);
+        // when: 820으로 더 내려옴
+        co2For(10, 820);
+        agent.tick();
+        // then: 끔
+        assertThat(purifier().power()).isEqualTo(ApplianceCommand.Power.OFF);
+        assertThat(facade.recentActions(1).get(0).reason()).contains("기준보다 충분히 낮아져");
+    }
+
     @Test
     @DisplayName("공기 센서 값이 10분 넘게 끊기면 기기를 켜지 않고 끊김을 알린다")
     void offline() {

@@ -20,6 +20,7 @@ import kr.ac.chosun.mspace.climate.domain.Baseline;
 import kr.ac.chosun.mspace.climate.domain.Finding;
 import kr.ac.chosun.mspace.climate.domain.Finding.Kind;
 import kr.ac.chosun.mspace.climate.domain.Metric;
+import kr.ac.chosun.mspace.climate.domain.MetricRule;
 import kr.ac.chosun.mspace.climate.domain.Sample;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -237,8 +238,17 @@ public class ClimateAgent {
             return;
         }
         Double mean = c.baseline().mean();
-        if (mean != null && c.latest().value() <= mean) {
-            String why = "CO2 %sppm, 이 방 평소(%sppm)로 돌아와 껐어요".formatted(Metric.CO2.format(c.latest().value()), Metric.CO2.format(mean));
+        if (mean == null) {
+            return;
+        }
+        // 오래 붐빈 방은 평소 값이 기준(1000ppm)보다 높을 수 있다. 그때 평소까지만 내려와 끄면 기준 언저리에서 바로 꺼져
+        // 또 켜지므로, 끄는 선은 "평소"와 "기준 - 여유 폭" 중 낮은 쪽으로
+        MetricRule rule = props.rules() == null ? null : props.rules().get(Metric.CO2);
+        double offAt = rule == null || rule.hardMax() == null ? mean : Math.min(mean, rule.hardMax() - rule.minBand());
+        if (c.latest().value() <= offAt) {
+            String why = offAt < mean
+                    ? "CO2 %sppm, 기준보다 충분히 낮아져 껐어요".formatted(Metric.CO2.format(c.latest().value()))
+                    : "CO2 %sppm, 이 방 평소(%sppm)로 돌아와 껐어요".formatted(Metric.CO2.format(c.latest().value()), Metric.CO2.format(mean));
             facade.set(room, ApplianceKind.VENTILATOR, false, why);
             facade.set(room, ApplianceKind.PURIFIER, false, why);
         }
