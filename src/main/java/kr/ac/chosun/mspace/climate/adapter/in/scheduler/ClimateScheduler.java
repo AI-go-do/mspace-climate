@@ -27,9 +27,6 @@ class ClimateScheduler {
     private final CoreRoomStatus roomStatus;
     private final LiveFeed live;
     private final DecisionBook decisions;
-    /** 시뮬레이션 중에는 재실도 시뮬레이션이 정한다(core 재실로 덮지 않음) */
-    @org.springframework.beans.factory.annotation.Value("${climate.sim.enabled:false}")
-    private boolean sim;
 
     ClimateScheduler(ClimateAgent agent, SnapshotFile snapshot, ClimateStore store, ClimateFacade facade,
                      AlertLog alerts, CoreRoomStatus roomStatus, LiveFeed live, DecisionBook decisions) {
@@ -50,9 +47,8 @@ class ClimateScheduler {
 
     @Scheduled(fixedDelayString = "${climate.tick:60s}", initialDelayString = "${climate.tick:60s}")
     void tick() {
-        if (!sim) {
-            roomStatus.pull(store);
-        }
+        // 재실은 늘 core 방 현황(실제 예약·입실)에서. 시뮬레이션도 이 재실을 받아 공기 값을 만든다
+        roomStatus.pull(store);
         agent.tick();
         live.publish("tick", java.util.Map.of());
     }

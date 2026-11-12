@@ -4,7 +4,6 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.function.IntFunction;
 import kr.ac.chosun.mspace.climate.appliance.ApplianceKind;
 import kr.ac.chosun.mspace.climate.appliance.ApplianceState;
 import kr.ac.chosun.mspace.climate.appliance.ClimateFacade;
@@ -29,19 +28,15 @@ public class ClimateTools {
     private final RoomAnalyzer analyzer;
     private final ClimateFacade facade;
     private final ClimateProperties props;
-    private final IntFunction<Integer> people;
 
-    /** @param people 방 번호 → 지금 인원(시뮬레이션 방만, 모르면 null) */
-    public ClimateTools(ClimateStore store, RoomAnalyzer analyzer, ClimateFacade facade, ClimateProperties props,
-                        IntFunction<Integer> people) {
+    public ClimateTools(ClimateStore store, RoomAnalyzer analyzer, ClimateFacade facade, ClimateProperties props) {
         this.store = store;
         this.analyzer = analyzer;
         this.facade = facade;
         this.props = props;
-        this.people = people == null ? id -> null : people;
     }
 
-    /** 방 상태 한 장: 재실·인원, 지표마다 지금 값·이 방 평소 범위·30분 뒤 예측·이상, 기기 상태, 냉난방 목표 범위 */
+    /** 방 상태 한 장: 재실(core 실제 예약·입실), 지표마다 지금 값·이 방 평소 범위·30분 뒤 예측·이상, 기기 상태, 냉난방 목표 범위 */
     public Map<String, Object> roomStatus(int roomId) {
         requireRoom(roomId);
         RoomAnalysis a = analyzer.analyze(store.view(roomId));
@@ -49,7 +44,6 @@ public class ClimateTools {
         out.put("roomId", roomId);
         out.put("roomName", a.name());
         out.put("occupied", a.occupied() == null ? "모름" : a.occupied() ? "있음" : "없음");
-        out.put("people", people.apply(roomId));
         out.put("autoControl", a.auto());
         out.put("sensorOffline", a.offline());
         Map<String, Object> metrics = new LinkedHashMap<>();

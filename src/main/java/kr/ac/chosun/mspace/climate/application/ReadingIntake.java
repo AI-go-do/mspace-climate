@@ -31,7 +31,6 @@ public class ReadingIntake {
     private final Map<Integer, Instant> lastLive = new ConcurrentHashMap<>();
     private final Set<Integer> replayed = ConcurrentHashMap.newKeySet();
     private final Set<Integer> simulated = ConcurrentHashMap.newKeySet();
-    private final Map<Integer, Integer> simPeople = new ConcurrentHashMap<>();
     private final Clock clock;
 
     public ReadingIntake(ClimateStore store, RoomDeriver deriver, ClimateAgent agent, Listener listener) {
@@ -96,18 +95,6 @@ public class ReadingIntake {
             agent.tickRoom(r.roomId());
         }
         return true;
-    }
-
-    /** 시뮬레이션이 만든 지금 인원 (화면의 "N명"). 실제 값이 오는 방은 지운다 */
-    public void simPeople(int roomId, int people) {
-        if (simulated.contains(roomId)) {
-            simPeople.put(roomId, people);
-        }
-    }
-
-    /** 시뮬레이션 방의 지금 인원. 시뮬레이션이 아니면 null */
-    public Integer people(int roomId) {
-        return simulated.contains(roomId) ? simPeople.get(roomId) : null;
     }
 
     /** 지금 시뮬레이션으로 채우는 방 */

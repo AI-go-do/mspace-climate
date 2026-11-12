@@ -12,9 +12,10 @@ import java.util.Random;
  * 방 공기 시뮬레이션 (FR-DEV-107, 재웅 11/12 "가짜 값으로 시뮬레이션 돌려서 에어컨 자동 제어를 보여 주자").
  * 실습실 센서가 멈춘 동안 방 5개 값을 1초마다 만든다. 수준은 실습실 실측(10/21~11/8: CO2 빈 방 560·수업 900~1300ppm,
  * 온도 21~22°C, 습도 47%)에 맞췄다.
- * - 사람이 들어오면 CO2·온도·습도가 오르고, 나가면 천천히 내려간다
+ * - 사람이 있는지는 시뮬레이션이 정하지 않는다(재웅 11/12 "인원은 빼 줘, 실제로 들어가면 변하게"). core 방 현황(실제 예약·입실)을
+ *   받아 쓴다. 사람이 있는 방은 CO2·온도·습도가 오르고, 비면 천천히 내려간다. 인원은 core가 안 알려 줘서 방 크기로 가정한다
  * - 오디가 켠 기기가 값에 실제로 반영된다: 에어컨 냉방은 목표 온도로, 제습은 습도를 낮추고, 환풍기는 CO2를 바깥 수준으로
- * - 가끔 한 방에 "상황"이 생긴다(햇빛·난방기로 온도 상승, 사람이 몰림). 오디가 탐지 → 예측 → 제어하는 장면을 만든다
+ * - 가끔 사람이 있는 방에 "상황"(햇빛·난방기로 온도 상승)이 생긴다. 오디가 탐지 → 예측 → 제어하는 장면을 만든다
  * 숫자는 가정이다. 화면·API에는 source=SIM으로 밝힌다.
  */
 public class RoomSimulator {
@@ -24,9 +25,8 @@ public class RoomSimulator {
         public static final Devices NONE = new Devices(false, false, false, null, false);
     }
 
-    /** 방 하나의 지금 값. people은 몰려온 사람(CROWD)까지 센 인원 */
-    public record State(int roomId, double co2, double temperatureC, double humidityPct, boolean occupied, int people,
-                        String event) {
+    /** 방 하나의 지금 값. occupied는 받은 재실(core) 그대로 */
+    public record State(int roomId, double co2, double temperatureC, double humidityPct, boolean occupied, String event) {
     }
 
     static final double OUTDOOR_CO2 = 520;   // 건물 안 빈 방 수준(실습실 새벽 550 안팎)
@@ -43,21 +43,21 @@ public class RoomSimulator {
     private final ZoneId zone;
     private final Random random;
     private final Map<Integer, Room> rooms = new LinkedHashMap<>();
-    private final Map<Integer, Integer> capacity;
+    private final Map<Integer, Integer> assumed;
     private final double eventEveryMinutes;
     private double nextEventIn;
 
     /**
-     * @param capacity          방 번호 → 최대 인원
-     * @param eventEveryMinutes 평균 몇 분마다 한 방에 상황(온도 상승·사람 몰림)을 만들지
+     * @param assumed           방 번호 → 사람이 있을 때 가정하는 인원(공기 값 계산에만 씀)
+     * @param eventEveryMinutes 평균 몇 분마다 사람이 있는 방에 상황(온도 상승)을 만들지
      */
-    public RoomSimulator(Map<Integer, Integer> capacity, double eventEveryMinutes, ZoneId zone, long seed) {
-        this.capacity = capacity;
+    public RoomSimulator(Map<Integer, Integer> assumed, double eventEveryMinutes, ZoneId zone, long seed) {
+        this.assumed = assumed;
         this.eventEveryMinutes = eventEveryMinutes;
         this.zone = zone;
         this.random = new Random(seed);
         this.nextEventIn = eventEveryMinutes * 0.3;
-        capacity.keySet().stream().sorted().forEach(id -> rooms.put(id, new Room(id)));
+        assumed.keySet().stream().sorted().forEach(id -> rooms.put(id, new Room(id)));
     }
 
     /** 시작 값: 빈 방, 실습실 밤 수준 */
@@ -66,22 +66,24 @@ public class RoomSimulator {
             r.co2 = 560 + random.nextGaussian() * 15;
             r.temp = ambient(r.id, now);
             r.hum = 47.5 + random.nextGaussian();
-            r.gapLeft = 2 + random.nextDouble() * 12;
         }
     }
 
-    /** dtMinutes만큼 흐르게 한다. devices: 방 번호 → 지금 켜진 기기 */
-    public synchronized void step(Instant now, double dtMinutes, Map<Integer, Devices> devices) {
+    /**
+     * dtMinutes만큼 흐르게 한다. devices: 방 번호 → 지금 켜진 기기, occupied: 방 번호 → 지금 사람이 있는지(core 방 현황).
+     * occupied에 없거나 모르면(null) 빈 방으로 친다
+     */
+    public synchronized void step(Instant now, double dtMinutes, Map<Integer, Devices> devices,
+                                  Map<Integer, Boolean> occupied) {
         nextEventIn -= dtMinutes;
         if (nextEventIn <= 0) {
             startEvent();
             nextEventIn = eventEveryMinutes * (0.7 + random.nextDouble() * 0.6);
         }
-        int hour = now.atZone(zone).getHour();
         for (Room r : rooms.values()) {
-            occupancy(r, hour, dtMinutes);
+            r.occupied = Boolean.TRUE.equals(occupied.get(r.id));
             Devices d = devices.getOrDefault(r.id, Devices.NONE);
-            int n = r.people + (r.eventLeft > 0 && "CROWD".equals(r.event) ? 4 : 0);
+            int n = r.occupied ? assumed.getOrDefault(r.id, 4) : 0;
             double vent = CO2_LEAK + (d.ventilating() ? CO2_VENT : 0);
             r.co2 += (n * CO2_PER_PERSON - vent * (r.co2 - OUTDOOR_CO2)) * dtMinutes;
 
@@ -110,42 +112,22 @@ public class RoomSimulator {
     public synchronized List<State> read() {
         List<State> out = new ArrayList<>();
         for (Room r : rooms.values()) {
-            int crowd = r.eventLeft > 0 && "CROWD".equals(r.event) ? 4 : 0;
             out.add(new State(r.id, Math.max(OUTDOOR_CO2 - 20, r.co2 + random.nextGaussian() * 4),
                     r.temp + random.nextGaussian() * 0.03, clamp(r.hum + random.nextGaussian() * 0.2, 5, 95),
-                    r.people + crowd > 0, r.people + crowd, r.event));
+                    r.occupied, r.event));
         }
         return out;
     }
 
-    /** 사람이 들고 나는 것: 낮에는 15분 쉬고 30~90분 쓰는 흐름, 밤에는 드물게 */
-    private void occupancy(Room r, int hour, double dt) {
-        if (r.people > 0) {
-            r.stayLeft -= dt;
-            if (r.stayLeft <= 0) {
-                r.people = 0;
-                r.gapLeft = (hour >= 9 && hour < 23 ? 8 : 60) + random.nextDouble() * 20;
-            }
-            return;
-        }
-        r.gapLeft -= dt;
-        if (r.gapLeft <= 0) {
-            int max = capacity.getOrDefault(r.id, 5);
-            r.people = 2 + random.nextInt(Math.max(1, max - 1));
-            r.stayLeft = 30 + random.nextDouble() * 60;
-        }
-    }
-
-    /** 한 방에 상황을 만든다. 사람이 있는 방을 고른다(빈 방이면 오디가 기기를 안 켜서) */
+    /** 사람이 있는 방 하나에 온도 상승을 만든다(빈 방이면 오디가 기기를 안 켜서). 아무도 없으면 건너뛴다 */
     private void startEvent() {
-        List<Room> busy = rooms.values().stream().filter(r -> r.people > 0 && r.eventLeft <= 0).toList();
+        List<Room> busy = rooms.values().stream().filter(r -> r.occupied && r.eventLeft <= 0).toList();
         if (busy.isEmpty()) {
             return;
         }
         Room r = busy.get(random.nextInt(busy.size()));
-        r.event = random.nextBoolean() ? "HEAT" : "CROWD";
+        r.event = "HEAT";
         r.eventLeft = 20;
-        r.stayLeft = Math.max(r.stayLeft, 35);
     }
 
     /** 방마다 조금 다른 건물 온도. 오후 5시쯤 가장 높고 새벽에 낮다(실습실 21.0~22.1°C) */
@@ -164,9 +146,7 @@ public class RoomSimulator {
         double co2;
         double temp;
         double hum;
-        int people;
-        double stayLeft;
-        double gapLeft;
+        boolean occupied;
         String event;
         double eventLeft;
 

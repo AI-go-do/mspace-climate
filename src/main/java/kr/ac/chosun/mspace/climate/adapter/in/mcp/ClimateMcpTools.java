@@ -24,7 +24,7 @@ class ClimateMcpTools {
 
     @McpTool(name = "room_status",
             description = """
-                    방 하나의 공기와 기기 상태를 본다. 사람 있음·인원, 지표(CO2·TEMPERATURE·HUMIDITY)마다 지금 값,
+                    방 하나의 공기와 기기 상태를 본다. 사람 있음(실제 예약·입실), 지표(CO2·TEMPERATURE·HUMIDITY)마다 지금 값,
                     이 방 평소 범위(usualLower~usualUpper), 1분 변화량, 30분 뒤 예측(in30min), 경계까지 남은 분(minutesToLimit),
                     이상(findings), 기기(AIRCON·VENTILATOR·PURIFIER) 상태, 냉방·난방 목표 온도로 고를 수 있는 범위를 준다.
                     기기를 바꾸기 전에 먼저 부른다.""",
