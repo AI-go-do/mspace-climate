@@ -88,7 +88,7 @@ climate:
     enabled: ${CLIMATE_REPLAY_ENABLED:false}
     backfill-minutes: 120
   # 방 공기 시뮬레이션 (재웅 11/12, FR-DEV-107). 실습실 센서가 멈춘 동안 1초마다 방 5개 값을 만들고, 오디가 켠 기기가 값에 반영된다.
-  # 가끔(평균 25분) 한 방에 온도 상승·사람 몰림을 만든다. 실제 값이 오는 방은 실제 값을 쓴다. 화면에는 "시뮬레이션"
+  # 가끔(평균 25분) 사람이 있는 방 하나에 온도 상승을 만든다. 재실은 core 방 현황(실제 예약·입실)을 쓴다. 실제 값이 오는 방은 실제 값을 쓴다. 화면에는 "시뮬레이션"
   sim:
     enabled: ${CLIMATE_SIM_ENABLED:true}
     backfill-minutes: 180

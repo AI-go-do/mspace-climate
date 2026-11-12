@@ -136,14 +136,15 @@ class ClimateConfig {
     /** 방 공기 시뮬레이션 (FR-DEV-107). climate.sim.enabled=true일 때만 (화면에는 SIM으로 밝힘) */
     @Bean
     @ConditionalOnProperty(name = "climate.sim.enabled", havingValue = "true")
-    SimFeeder simFeeder(ReadingIntake intake, ClimateFacade facade, ClimateProperties p, Clock clock,
+    SimFeeder simFeeder(ReadingIntake intake, ClimateStore store, ClimateFacade facade, ClimateProperties p, Clock clock,
                         @org.springframework.beans.factory.annotation.Value("${climate.sim.backfill-minutes:180}") int backfill,
                         @org.springframework.beans.factory.annotation.Value("${climate.sim.event-every-minutes:25}") double eventEvery,
                         @org.springframework.beans.factory.annotation.Value("${climate.sim.judge-every-seconds:10}") int judgeEvery) {
-        java.util.Map<Integer, Integer> cap = new java.util.LinkedHashMap<>();
-        p.rooms().keySet().stream().sorted().forEach(id -> cap.put(id, id == 5 ? 8 : 5));
-        RoomSimulator sim = new RoomSimulator(cap, eventEvery, SEOUL, System.nanoTime());
-        return new SimFeeder(sim, intake, facade, List.copyOf(cap.keySet()), backfill, judgeEvery, clock);
+        // 사람이 있을 때 가정하는 인원(core가 인원을 안 알려 줌): 1~4번 방 4명, 5번 방 6명
+        java.util.Map<Integer, Integer> people = new java.util.LinkedHashMap<>();
+        p.rooms().keySet().stream().sorted().forEach(id -> people.put(id, id == 5 ? 6 : 4));
+        RoomSimulator sim = new RoomSimulator(people, eventEvery, SEOUL, System.nanoTime());
+        return new SimFeeder(sim, intake, store, facade, List.copyOf(people.keySet()), backfill, judgeEvery, clock);
     }
 
     @Bean
@@ -166,9 +167,8 @@ class ClimateConfig {
 
     /** 오디 공기 도구 (MCP로 열림: room_status·set_aircon·set_ventilator·set_purifier). 안전 규칙은 도구 안에 */
     @Bean
-    ClimateTools climateTools(ClimateStore store, RoomAnalyzer analyzer, ClimateFacade facade, ClimateProperties p,
-                              ReadingIntake intake) {
-        return new ClimateTools(store, analyzer, facade, p, intake::people);
+    ClimateTools climateTools(ClimateStore store, RoomAnalyzer analyzer, ClimateFacade facade, ClimateProperties p) {
+        return new ClimateTools(store, analyzer, facade, p);
     }
 
     /**
