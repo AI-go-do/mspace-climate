@@ -56,8 +56,10 @@ climate:
   rules:
     # CO2 위 경계는 1000 고정(fixed-upper): 실측 19일 채점에서 방 기준선 경계보다 헛알림이 50→16번(README 미리 환기 채점표)
     CO2:         { hard-max: 1000, min-band: 150, spike-jump: 400, fixed-upper: true }
-    TEMPERATURE: { hard-min: 18, hard-max: 28, min-band: 1.5, spike-jump: 4 }
-    HUMIDITY:    { hard-min: 30, hard-max: 70, min-band: 8, spike-jump: 20 }
+    # 멈춤(값 그대로)은 CO2로만 본다(stuck-check: false). 온도 0.1°C·습도 0.5% 눈금이라 20분 그대로가 흔해
+    # 실측 19일에 멈춤 헛알림 1,720번 → 0번(README 센서 고장 채점표 2판). 기기가 멈추면 CO2도 같이 멈춘다
+    TEMPERATURE: { hard-min: 18, hard-max: 28, min-band: 1.5, spike-jump: 4, stuck-check: false }
+    HUMIDITY:    { hard-min: 30, hard-max: 70, min-band: 8, spike-jump: 20, stuck-check: false }
   comfort:
     cool-min: 24
     cool-max: 26

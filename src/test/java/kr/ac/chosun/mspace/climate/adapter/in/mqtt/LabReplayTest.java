@@ -46,9 +46,9 @@ class LabReplayTest {
         var props = new ClimateProperties(Map.of(1, "1번 방", 2, "2번 방", 3, "3번 방"), Duration.ofDays(7), 2.5, 30,
                 Duration.ofMinutes(30), 5, Duration.ofMinutes(15), Duration.ofMinutes(20), Duration.ofMinutes(10),
                 Duration.ofMinutes(10), Duration.ofMinutes(30), Duration.ofMinutes(30),
-                Map.of(Metric.CO2, new MetricRule(null, 1000.0, 150, 400, false),
-                        Metric.TEMPERATURE, new MetricRule(18.0, 28.0, 1.5, 4, false),
-                        Metric.HUMIDITY, new MetricRule(30.0, 70.0, 8, 20, false)),
+                Map.of(Metric.CO2, new MetricRule(null, 1000.0, 150, 400, false, null),
+                        Metric.TEMPERATURE, new MetricRule(18.0, 28.0, 1.5, 4, false, null),
+                        Metric.HUMIDITY, new MetricRule(30.0, 70.0, 8, 20, false, null)),
                 new ClimateProperties.Comfort(24, 26, 20, 22), List.of(), null, null);
         store = new ClimateStore(props, clock);
         var facade = new ClimateFacade(List.of(), props.holdManual(), 100, clock);

@@ -167,7 +167,7 @@ public final class AirScoreCard {
     }
 
     static Score score(Map<Integer, TreeMap<Instant, Double>> data, Variant v) {
-        MetricRule rule = new MetricRule(null, LIMIT, 150, 400, v.fixedLimit());
+        MetricRule rule = new MetricRule(null, LIMIT, 150, 400, v.fixedLimit(), null);
         BaselineCalculator baselines = new BaselineCalculator(SEOUL, v.k(), 30);
         TrendForecaster forecaster = new TrendForecaster(v.trendWindow(), v.minTrendPoints());
         AnomalyDetector detector = new AnomalyDetector(v.lead(), Duration.ofMinutes(20));
