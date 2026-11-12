@@ -141,4 +141,43 @@ class RoomSimulatorTest {
         // then
         assertThat(on.read().get(0).temperatureC()).isLessThan(off.read().get(0).temperatureC() - 0.5);
     }
+
+    @Test
+    @DisplayName("가상 방(2번)은 시뮬레이션이 손님을 만든다: 6시간 동안 여러 번 들어오고 나가며, 인원은 방 크기 안, 실제 방(1번)은 core 재실만 따른다")
+    void virtualRoomsHaveVisitors() {
+        // given: 1번 실제, 2번 가상(3~5명), 빈 틈 10~40분·머무름 50~120분
+        var visitors = new RoomSimulator.Visitors(Map.of(2, new int[] {3, 5}), 10, 40, 50, 120);
+        RoomSimulator sim = new RoomSimulator(Map.of(1, 4, 2, 4), 1e9, SEOUL, 21, visitors);
+        sim.start(T0);
+        Instant t = T0;
+        int checkIns = 0;
+        boolean was = sim.read().get(1).occupied();
+        double peak = 0;
+        // when: core 재실은 계속 "빈 방"으로 6시간
+        for (int i = 0; i < 360; i++) {
+            t = t.plusSeconds(60);
+            sim.step(t, 1, Map.of(), Map.of(1, false, 2, false));
+            var room1 = sim.read().get(0);
+            var room2 = sim.read().get(1);
+            // then: 1번은 늘 빈 방, 인원·퇴실 시각 없음
+            assertThat(room1.occupied()).isFalse();
+            assertThat(room1.people()).isNull();
+            if (room2.occupied()) {
+                assertThat(room2.people()).isBetween(3, 5);
+                assertThat(room2.until()).isAfter(t);
+                peak = Math.max(peak, room2.co2());
+                if (!was) {
+                    checkIns++;
+                }
+            } else {
+                assertThat(room2.people()).isNull();
+            }
+            was = room2.occupied();
+        }
+        // then: 여러 번 들어왔고, 사람이 있을 때 CO2가 실제로 올랐다
+        assertThat(checkIns).isBetween(2, 6);
+        assertThat(peak).isGreaterThan(800.0);
+        assertThat(sim.isVirtual(2)).isTrue();
+        assertThat(sim.isVirtual(1)).isFalse();
+    }
 }

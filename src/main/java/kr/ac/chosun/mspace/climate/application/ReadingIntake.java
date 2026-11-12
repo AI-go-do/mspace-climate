@@ -31,7 +31,12 @@ public class ReadingIntake {
     private final Map<Integer, Instant> lastLive = new ConcurrentHashMap<>();
     private final Set<Integer> replayed = ConcurrentHashMap.newKeySet();
     private final Set<Integer> simulated = ConcurrentHashMap.newKeySet();
+    private final Map<Integer, Visit> visits = new ConcurrentHashMap<>();
     private final Clock clock;
+
+    /** 가상 방(시뮬레이션이 손님을 만드는 방)의 지금 손님. 빈 방이면 people·until이 null */
+    public record Visit(Integer people, Instant until) {
+    }
 
     public ReadingIntake(ClimateStore store, RoomDeriver deriver, ClimateAgent agent, Listener listener) {
         this(store, deriver, agent, listener, Clock.systemUTC());
@@ -51,6 +56,10 @@ public class ReadingIntake {
                 || simulated.contains(r.roomId()) || deriver.derived(r.roomId()))) {
             return false;
         }
+        // 가상 방은 재실도 시뮬레이션이 정한다(방 장치 값이 섞이면 손님이 있다 없다 깜빡임)
+        if ("OCCUPANCY".equals(r.kind()) && visits.containsKey(r.roomId())) {
+            return false;
+        }
         return take(r, "REAL", true);
     }
 
@@ -60,6 +69,7 @@ public class ReadingIntake {
         lastLive.put(r.roomId(), clock.instant());
         replayed.remove(r.roomId());
         simulated.remove(r.roomId());
+        visits.remove(r.roomId());
         return take(r, "REAL", true);
     }
 
@@ -95,6 +105,18 @@ public class ReadingIntake {
             agent.tickRoom(r.roomId());
         }
         return true;
+    }
+
+    /** 가상 방의 지금 손님(화면의 "N명"·퇴실 시각). 실제 값이 오는 방이면 무시 */
+    public void simVisit(int roomId, Integer people, Instant until) {
+        if (simulated.contains(roomId)) {
+            visits.put(roomId, new Visit(people, until));
+        }
+    }
+
+    /** 가상 방의 지금 손님. 가상 방이 아니면 null */
+    public Visit visit(int roomId) {
+        return simulated.contains(roomId) ? visits.get(roomId) : null;
     }
 
     /** 지금 시뮬레이션으로 채우는 방 */
