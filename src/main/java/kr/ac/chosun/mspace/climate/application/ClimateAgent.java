@@ -20,6 +20,7 @@ import kr.ac.chosun.mspace.climate.domain.Baseline;
 import kr.ac.chosun.mspace.climate.domain.Finding;
 import kr.ac.chosun.mspace.climate.domain.Finding.Kind;
 import kr.ac.chosun.mspace.climate.domain.Metric;
+import kr.ac.chosun.mspace.climate.domain.Sample;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -252,7 +253,7 @@ public class ClimateAgent {
             if (rank(f.kind()) > rank(d.kind())) {
                 next = next.kind(f.kind())
                         .with(Step.DETECT, Status.DONE, detect(a, f), now)
-                        .with(Step.PREDICT, Status.DONE, f.message(), now);
+                        .with(Step.PREDICT, Status.DONE, predict(a, f), now);
             }
             Alert alert = sent.get(e.getKey());
             if (alert != null) {
@@ -293,7 +294,7 @@ public class ClimateAgent {
         boolean sensor = !f.actionable();
         steps.put(Step.PREDICT, sensor
                 ? new Decision.StepState(Status.SKIPPED, "센서 문제라 예측하지 않아요", now)
-                : new Decision.StepState(Status.DONE, f.message(), now));
+                : new Decision.StepState(Status.DONE, predict(a, f), now));
         steps.put(Step.NOTIFY, alert != null
                 ? new Decision.StepState(Status.DONE, notifyText(alert), now)
                 : new Decision.StepState(Status.SKIPPED, "30분 안에 같은 알림을 보내서 쉬어요", now));
@@ -352,6 +353,25 @@ public class ClimateAgent {
             return v;
         }
         return "%s (이 방 평소 %s%s)".formatted(v, f.metric().format(mean), f.metric().unit());
+    }
+
+    /** 이미 넘은 값이면 탐지 문장을 되풀이하지 않고, 예측선 끝(30분 뒤) 값과 방향을 말한다 */
+    private static String predict(RoomAnalysis a, Finding f) {
+        boolean over = f.kind() == Finding.Kind.OVER;
+        if (!over && f.kind() != Finding.Kind.UNDER) {
+            return f.message();
+        }
+        var m = a.metrics().get(f.metric());
+        if (m == null || m.latest() == null || m.forecast() == null || m.forecast().points().isEmpty()) {
+            return f.message();
+        }
+        Sample end = m.forecast().points().get(m.forecast().points().size() - 1);
+        double diff = end.value() - m.latest().value();
+        long min = Math.max(1, Duration.between(m.latest().at(), end.at()).toMinutes());
+        String way = f.metric().format(end.value()).equals(f.metric().format(m.latest().value())) ? "이대로 머물 것 같아요"
+                : (diff > 0) == over ? (over ? "더 오를 것 같아요" : "더 내려갈 것 같아요")
+                : (over ? "조금씩 내려올 것 같아요" : "조금씩 올라올 것 같아요");
+        return "그냥 두면 %d분 뒤 %s%s, %s".formatted(min, f.metric().format(end.value()), f.metric().unit(), way);
     }
 
     private static String now(RoomAnalysis a, Metric metric) {

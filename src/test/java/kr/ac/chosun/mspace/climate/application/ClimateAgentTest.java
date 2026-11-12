@@ -181,6 +181,20 @@ class ClimateAgentTest {
     }
 
     @Test
+    @DisplayName("판단 카드: 이미 넘은 값이면 예측 단계는 탐지 문장을 되풀이하지 않고 30분 뒤 값과 방향을 말한다")
+    void predictAfterOver() {
+        store.setOccupancy(1, true, clock.instant());
+        feed(40, 24, 0, 900, 10);
+
+        agent.tick();
+
+        Decision d = co2Card();
+        String predict = d.step(Decision.Step.PREDICT).text();
+        assertThat(predict).startsWith("그냥 두면 ").contains("분 뒤 ").endsWith("더 오를 것 같아요");
+        assertThat(predict).doesNotContain("넘었어요");
+    }
+
+    @Test
     @DisplayName("판단 카드: CO2가 곧 넘을 것 같으면 탐지·예측·알림·제어가 끝나고 다시 확인은 돌아가는 중으로 남는다")
     void decisionCardOpens() {
         store.setOccupancy(1, true, clock.instant());
