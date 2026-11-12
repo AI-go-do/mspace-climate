@@ -9,6 +9,7 @@ import java.util.Map;
 import kr.ac.chosun.mspace.climate.appliance.ApplianceCommand;
 import kr.ac.chosun.mspace.climate.appliance.ApplianceState;
 import kr.ac.chosun.mspace.climate.appliance.ClimateFacade;
+import kr.ac.chosun.mspace.climate.application.ReadingIntake;
 import kr.ac.chosun.mspace.climate.application.AlertLog;
 import kr.ac.chosun.mspace.climate.application.ClimateStore;
 import kr.ac.chosun.mspace.climate.application.Decision;
@@ -60,10 +61,12 @@ class ClimateController {
     private final java.time.Clock clock;
     private final LiveFeed live;
     private final DecisionBook decisions;
+    private final ReadingIntake intake;
 
     ClimateController(ClimateStore store, RoomAnalyzer analyzer, ClimateFacade facade, AlertLog alerts, JwtVerifier jwt,
                       AdminChecker admins, ClimateProperties props, java.time.Clock clock, LiveFeed live,
-                      DecisionBook decisions) {
+                      DecisionBook decisions, ReadingIntake intake) {
+        this.intake = intake;
         this.live = live;
         this.decisions = decisions;
         decisions.listen(d -> live.publish("decision", DecisionView.of(d)));
@@ -84,7 +87,8 @@ class ClimateController {
         List<RoomView> out = new ArrayList<>();
         for (int id : store.roomIds()) {
             RoomAnalysis a = analyzer.analyze(store.view(id));
-            out.add(RoomView.of(a, facade.states(id), props.derive() != null && props.derive().derived(id)));
+            out.add(RoomView.of(a, facade.states(id), props.derive() != null && props.derive().derived(id)
+                    && !intake.directRooms().contains(id)));
         }
         return Map.of("now", Times.kst(clock.instant()), "rooms", out);
     }
