@@ -2,6 +2,7 @@ package kr.ac.chosun.mspace.climate.adapter.in.web;
 
 import java.time.OffsetDateTime;
 import java.util.Map;
+import kr.ac.chosun.mspace.climate.application.ClimateAgent;
 import kr.ac.chosun.mspace.climate.application.ClimateProperties;
 import kr.ac.chosun.mspace.climate.application.ClimateStore;
 import kr.ac.chosun.mspace.climate.application.RoomDeriver;
@@ -19,9 +20,13 @@ class SensorIngestController {
 
     private final ClimateStore store;
     private final RoomDeriver deriver;
+    private final LiveFeed live;
+    private final ClimateAgent agent;
 
-    SensorIngestController(ClimateStore store, ClimateProperties props) {
+    SensorIngestController(ClimateStore store, ClimateProperties props, LiveFeed live, ClimateAgent agent) {
+        this.agent = agent;
         this.store = store;
+        this.live = live;
         this.deriver = props.derive() == null ? new RoomDeriver(0, null) : props.derive();
     }
 
@@ -39,9 +44,28 @@ class SensorIngestController {
                 b.temperatureC(), b.humidityPct(), at);
         boolean ok = store.accept(real);
         if (ok) {
-            deriver.derive(real, at == null ? java.time.Instant.now() : at).forEach(store::accept);
+            push(real, "REAL");
+            agent.tickRoom(real.roomId());
+            for (SensorReading d : deriver.derive(real, at == null ? java.time.Instant.now() : at)) {
+                if (store.accept(d)) {
+                    push(d, "DERIVED");
+                    agent.tickRoom(d.roomId());
+                }
+            }
         }
         return Map.of("result", ok ? "STORED" : "IGNORED");
+    }
+
+    /** 받은 그 순간 열린 대시보드로 보낸다 (공기 값만, 재실 이벤트는 다음 판단 때) */
+    private void push(SensorReading r, String source) {
+        if (!"CO2".equals(r.kind())) {
+            return;
+        }
+        live.publish("reading", new Live(r.roomId(), Times.kst(r.observedAt() == null ? java.time.Instant.now()
+                : r.observedAt()), r.ppm(), r.temperatureC(), r.humidityPct(), source));
+    }
+
+    record Live(int roomId, String at, Integer co2, Double temperatureC, Double humidityPct, String source) {
     }
 
     private static java.time.Instant parse(String s) {

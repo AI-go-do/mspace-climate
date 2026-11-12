@@ -6,4 +6,9 @@ package kr.ac.chosun.mspace.climate.application;
 public interface Notifier {
 
     void send(Alert alert);
+
+    /** 학생에게 실제로 닿는 어댑터면 true. 지금 기록 어댑터는 false(화면 판단 카드에 "알림함 연결 전"으로 보임) */
+    default boolean reachesStudents() {
+        return false;
+    }
 }

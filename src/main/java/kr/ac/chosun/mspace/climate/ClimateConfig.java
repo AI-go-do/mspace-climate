@@ -19,6 +19,7 @@ import kr.ac.chosun.mspace.climate.application.AlertLog;
 import kr.ac.chosun.mspace.climate.application.ClimateAgent;
 import kr.ac.chosun.mspace.climate.application.ClimateProperties;
 import kr.ac.chosun.mspace.climate.application.ClimateStore;
+import kr.ac.chosun.mspace.climate.application.DecisionBook;
 import kr.ac.chosun.mspace.climate.application.Notifier;
 import kr.ac.chosun.mspace.climate.application.RoomAnalyzer;
 import kr.ac.chosun.mspace.climate.domain.AnomalyDetector;
@@ -79,9 +80,14 @@ class ClimateConfig {
     }
 
     @Bean
+    DecisionBook decisionBook() {
+        return new DecisionBook(200);
+    }
+
+    @Bean
     ClimateAgent climateAgent(ClimateStore store, RoomAnalyzer analyzer, ClimateFacade facade, AlertLog alerts,
-                              ClimateProperties p, Clock clock) {
-        return new ClimateAgent(store, analyzer, facade, alerts, p, clock);
+                              ClimateProperties p, Clock clock, DecisionBook decisions, Notifier notifier) {
+        return new ClimateAgent(store, analyzer, facade, alerts, p, clock, decisions, notifier.reachesStudents());
     }
 
     @Bean

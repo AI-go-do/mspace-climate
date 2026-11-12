@@ -56,6 +56,8 @@ ClimateAgent / 관리자 화면 ──▶ ClimateFacade ("1번 방 냉방 25도"
 | `GET /api/climate/rooms` | 방마다 지금 값·기준선·예측(`etaMinutes`)·이상·기기 상태·`source` | 로그인 |
 | `GET /api/climate/rooms/{roomId}/series?minutes=180` | 그래프: 1분 값 + 기준선 띠(`lower`·`upper`) + 예측 점선 | 로그인 |
 | `GET /api/climate/log?limit=50` | 오디 조치 기록(누가·언제·왜) + 알림 | 로그인 |
+| `GET /api/climate/stream` | 실시간 연결(SSE). `reading`(새 센서 값, 받은 그 순간) · `decision`(오디 판단 카드가 바뀜) · `tick`(1분 판단 끝). 20초마다 ping. 화면은 `fetch`로 읽음(EventSource는 Authorization 헤더를 못 붙임) | 로그인 |
+| `GET /api/climate/decisions?limit=20&roomId=` | 오디 판단 카드: `DETECT` 탐지 → `PREDICT` 예측 → `NOTIFY` 알림 → `CONTROL` 제어 → `VERIFY` 다시 확인. 단계마다 `RUNNING`·`DONE`·`SKIPPED`·`FAILED` + 한 줄 이유. 다시 확인은 값이 평소로 돌아올 때까지 `RUNNING`(30분 넘으면 `FAILED`로 닫고 새 카드) | 로그인 |
 | `POST /api/climate/rooms/{roomId}/appliances/{id}/commands` | `{"power":"ON","mode":"COOL","targetC":25}` | 관리자(core가 판단) |
 | `PUT /api/climate/rooms/{roomId}/auto` | `{"enabled":false}` 오디 자동 제어 끔 | 관리자 |
 

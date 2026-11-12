@@ -72,6 +72,52 @@ class ClimateApiTest {
     }
 
     @Test
+    @DisplayName("대시보드가 열어 둔 연결로 새 센서 값이 들어오는 그 순간 reading이 밀려온다 (토큰 없으면 401)")
+    void liveStream() throws Exception {
+        assertThat(get("/api/climate/stream", null).statusCode()).isEqualTo(401);
+
+        var lines = new java.util.concurrent.LinkedBlockingQueue<String>();
+        HttpRequest req = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + "/api/climate/stream"))
+                .header("Authorization", "Bearer " + token(2)).GET().build();
+        var res = http.sendAsync(req, HttpResponse.BodyHandlers.ofLines())
+                .get(5, java.util.concurrent.TimeUnit.SECONDS);
+        assertThat(res.statusCode()).isEqualTo(200);
+        assertThat(res.headers().firstValue("X-Accel-Buffering")).hasValue("no");
+        Thread reader = Thread.ofVirtual().start(() -> res.body().forEach(lines::add));
+        try {
+            assertThat(waitFor(lines, "event:hello")).isTrue();
+            post("/internal/sensor-events", null, """
+                    {"eventId":"live-1","roomId":1,"kind":"CO2","ppm":777,"temperatureC":24.1,
+                     "humidityPct":44.0,"observedAt":"%s"}""".formatted(OffsetDateTime.now(ZoneOffset.ofHours(9))));
+            assertThat(waitFor(lines, "event:reading")).isTrue();
+            assertThat(waitFor(lines, "\"co2\":777")).isTrue();
+        } finally {
+            reader.interrupt();
+        }
+    }
+
+    private static boolean waitFor(java.util.concurrent.BlockingQueue<String> lines, String text)
+            throws InterruptedException {
+        long end = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5);
+        while (System.nanoTime() < end) {
+            String l = lines.poll(200, java.util.concurrent.TimeUnit.MILLISECONDS);
+            if (l != null && l.contains(text)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    @Test
+    @DisplayName("오디 판단 카드 목록은 로그인하면 볼 수 있다")
+    void decisionsList() throws Exception {
+        assertThat(get("/api/climate/decisions", null).statusCode()).isEqualTo(401);
+        HttpResponse<String> res = get("/api/climate/decisions?limit=5", token(2));
+        assertThat(res.statusCode()).isEqualTo(200);
+        assertThat(res.body()).startsWith("{\"decisions\":[");
+    }
+
+    @Test
     @DisplayName("같은 eventId를 두 번 받으면 한 번만 센다")
     void duplicate() throws Exception {
         String body = """

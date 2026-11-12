@@ -11,6 +11,8 @@ import kr.ac.chosun.mspace.climate.appliance.ApplianceState;
 import kr.ac.chosun.mspace.climate.appliance.ClimateFacade;
 import kr.ac.chosun.mspace.climate.application.AlertLog;
 import kr.ac.chosun.mspace.climate.application.ClimateStore;
+import kr.ac.chosun.mspace.climate.application.Decision;
+import kr.ac.chosun.mspace.climate.application.DecisionBook;
 import kr.ac.chosun.mspace.climate.application.RoomAnalysis;
 import kr.ac.chosun.mspace.climate.application.RoomAnalyzer;
 import kr.ac.chosun.mspace.climate.auth.AdminChecker;
@@ -56,9 +58,15 @@ class ClimateController {
     private final BaselineCalculator baselines;
     private final ClimateProperties props;
     private final java.time.Clock clock;
+    private final LiveFeed live;
+    private final DecisionBook decisions;
 
     ClimateController(ClimateStore store, RoomAnalyzer analyzer, ClimateFacade facade, AlertLog alerts, JwtVerifier jwt,
-                      AdminChecker admins, ClimateProperties props, java.time.Clock clock) {
+                      AdminChecker admins, ClimateProperties props, java.time.Clock clock, LiveFeed live,
+                      DecisionBook decisions) {
+        this.live = live;
+        this.decisions = decisions;
+        decisions.listen(d -> live.publish("decision", DecisionView.of(d)));
         this.store = store;
         this.analyzer = analyzer;
         this.facade = facade;
@@ -79,6 +87,20 @@ class ClimateController {
             out.add(RoomView.of(a, facade.states(id), props.derive() != null && props.derive().derived(id)));
         }
         return Map.of("now", Times.kst(clock.instant()), "rooms", out);
+    }
+
+    /**
+     * 실시간 연결(SSE). 브라우저 EventSource는 헤더를 못 붙여서 화면은 fetch로 읽는다.
+     * X-Accel-Buffering: no = nginx가 쌓아 두지 말고 바로 흘려보내라는 뜻
+     */
+    @GetMapping(path = "/api/climate/stream", produces = "text/event-stream")
+    org.springframework.http.ResponseEntity<org.springframework.web.servlet.mvc.method.annotation.SseEmitter> stream(
+            @RequestHeader(name = "Authorization", required = false) String auth) {
+        jwt.memberId(auth);
+        return org.springframework.http.ResponseEntity.ok()
+                .header("X-Accel-Buffering", "no")
+                .header("Cache-Control", "no-cache")
+                .body(live.open());
     }
 
     @GetMapping("/api/climate/rooms/{roomId}/series")
@@ -116,6 +138,19 @@ class ClimateController {
         return Map.of("roomId", roomId, "metrics", metrics);
     }
 
+    /** 오디 판단 카드 (탐지 → 예측 → 알림 → 제어 → 다시 확인). 새것부터. roomId를 주면 그 방만 */
+    @GetMapping("/api/climate/decisions")
+    Map<String, Object> decisions(@RequestHeader(name = "Authorization", required = false) String auth,
+                                  @RequestParam(defaultValue = "20") int limit,
+                                  @RequestParam(required = false) Integer roomId) {
+        jwt.memberId(auth);
+        int n = Math.max(1, Math.min(limit, 200));
+        var list = decisions.recent(200).stream()
+                .filter(d -> roomId == null || d.roomId() == roomId)
+                .limit(n).map(DecisionView::of).toList();
+        return Map.of("decisions", list);
+    }
+
     @GetMapping("/api/climate/log")
     Map<String, Object> log(@RequestHeader(name = "Authorization", required = false) String auth,
                             @RequestParam(defaultValue = "50") int limit) {
@@ -140,7 +175,9 @@ class ClimateController {
                 || (body.targetC() != null && (body.targetC() < 16 || body.targetC() > 30))) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_REQUEST", "power는 ON/OFF, 온도는 16–30도예요");
         }
-        return ApplianceView.of(facade.command(a.id(), body, "ADMIN", "관리자가 직접 바꿈"));
+        ApplianceView v = ApplianceView.of(facade.command(a.id(), body, "ADMIN", "관리자가 직접 바꿈"));
+        live.publish("tick", Map.of("roomId", roomId));
+        return v;
     }
 
     @PutMapping("/api/climate/rooms/{roomId}/auto")
@@ -224,6 +261,26 @@ class ClimateController {
                     x.command().power().name(), x.command().mode() == null ? null : x.command().mode().name(),
                     x.command().targetC(), x.by(), x.reason(), x.ok());
         }
+    }
+
+    /** 단계 key: DETECT 탐지 / PREDICT 예측 / NOTIFY 알림 / CONTROL 제어 / VERIFY 다시 확인. status: RUNNING·DONE·SKIPPED·FAILED */
+    record DecisionView(String id, int roomId, String roomName, String metric, String group, String kind,
+                        String openedAt, String closedAt, boolean open, List<StepView> steps) {
+        static DecisionView of(Decision d) {
+            List<StepView> steps = new ArrayList<>();
+            for (Decision.Step s : Decision.Step.values()) {
+                Decision.StepState st = d.step(s);
+                if (st != null) {
+                    steps.add(new StepView(s.name(), st.status().name(), st.text(), Times.kst(st.at())));
+                }
+            }
+            return new DecisionView(d.id(), d.roomId(), d.roomName(), d.metric() == null ? null : d.metric().name(),
+                    d.group(), d.kind().name(), Times.kst(d.openedAt()),
+                    d.closedAt() == null ? null : Times.kst(d.closedAt()), d.open(), steps);
+        }
+    }
+
+    record StepView(String key, String status, String text, String at) {
     }
 
     record AlertView(String at, int roomId, String audience, String metric, String kind, String message,

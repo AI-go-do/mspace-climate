@@ -33,6 +33,8 @@ class ClimateAgentTest {
     ClimateFacade facade;
     AlertLog alerts;
     ClimateAgent agent;
+    DecisionBook decisions;
+    List<Decision> pushed;
     List<Alert> sent;
     int seq;
 
@@ -54,7 +56,10 @@ class ClimateAgentTest {
         RoomAnalyzer analyzer = new RoomAnalyzer(props, new BaselineCalculator(ZoneId.of("Asia/Seoul"), 2.5, 30),
                 new TrendForecaster(Duration.ofMinutes(30), 5),
                 new AnomalyDetector(Duration.ofMinutes(15), Duration.ofMinutes(20)), clock);
-        agent = new ClimateAgent(store, analyzer, facade, alerts, props, clock);
+        decisions = new DecisionBook(50);
+        pushed = new ArrayList<>();
+        decisions.listen(pushed::add);
+        agent = new ClimateAgent(store, analyzer, facade, alerts, props, clock, decisions, false);
     }
 
     /** 1분마다 값 하나 넣고 시계를 1분 돌린다 */
@@ -168,5 +173,90 @@ class ClimateAgentTest {
         agent.tick();
         assertThat(purifier().power()).isEqualTo(ApplianceCommand.Power.OFF);
         assertThat(sent).anyMatch(a -> a.message().contains("안 들어와요"));
+    }
+
+    Decision co2Card() {
+        return decisions.recent(50).stream().filter(d -> d.metric() == Metric.CO2 && "HIGH".equals(d.group()))
+                .findFirst().orElseThrow();
+    }
+
+    @Test
+    @DisplayName("판단 카드: CO2가 곧 넘을 것 같으면 탐지·예측·알림·제어가 끝나고 다시 확인은 돌아가는 중으로 남는다")
+    void decisionCardOpens() {
+        store.setOccupancy(1, true, clock.instant());
+        feed(20, 24, 0, 680, 10);
+
+        agent.tick();
+
+        Decision d = co2Card();
+        assertThat(d.open()).isTrue();
+        assertThat(d.step(Decision.Step.DETECT).status()).isEqualTo(Decision.Status.DONE);
+        assertThat(d.step(Decision.Step.DETECT).text()).startsWith("CO2 870ppm");
+        assertThat(d.step(Decision.Step.PREDICT).text()).contains("분 뒤");
+        assertThat(d.step(Decision.Step.NOTIFY).status()).isEqualTo(Decision.Status.DONE);
+        assertThat(d.step(Decision.Step.NOTIFY).text()).contains("알림함 연결 전");
+        assertThat(d.step(Decision.Step.CONTROL).status()).isEqualTo(Decision.Status.DONE);
+        assertThat(d.step(Decision.Step.CONTROL).text()).contains("공기청정기 켬");
+        assertThat(d.step(Decision.Step.VERIFY).status()).isEqualTo(Decision.Status.RUNNING);
+        assertThat(pushed).isNotEmpty();
+    }
+
+    @Test
+    @DisplayName("판단 카드: 같은 일로 다시 판단해도 카드는 하나, 바뀐 게 없으면 화면에 다시 안 보낸다")
+    void decisionCardNoDuplicate() {
+        store.setOccupancy(1, true, clock.instant());
+        feed(20, 24, 0, 680, 10);
+        agent.tick();
+        int before = pushed.size();
+
+        agent.tick();
+
+        assertThat(decisions.recent(50).stream().filter(d -> d.metric() == Metric.CO2)).hasSize(1);
+        assertThat(pushed).hasSize(before);
+    }
+
+    @Test
+    @DisplayName("판단 카드: 값이 평소로 돌아오면 다시 확인이 끝나고(체크) 카드가 닫힌다")
+    void decisionCardCloses() {
+        store.setOccupancy(1, true, clock.instant());
+        feed(20, 24, 0, 680, 10);
+        agent.tick();
+
+        feed(25, 24, 0, 600, 0);
+        agent.tick();
+
+        Decision d = co2Card();
+        assertThat(d.open()).isFalse();
+        assertThat(d.step(Decision.Step.VERIFY).status()).isEqualTo(Decision.Status.DONE);
+        assertThat(d.step(Decision.Step.VERIFY).text()).contains("평소 범위로 돌아왔어요");
+    }
+
+    @Test
+    @DisplayName("판단 카드: 빈 방이면 제어는 건너뛰고 이유를 남긴다")
+    void decisionCardEmptyRoom() {
+        store.setOccupancy(1, false, clock.instant());
+        feed(5, 24, 0, 680, 0);
+        store.setOccupancy(1, false, clock.instant());
+        feed(15, 24, 0, 730, 10);
+        agent.tick();
+
+        Decision d = co2Card();
+        assertThat(d.step(Decision.Step.CONTROL).status()).isEqualTo(Decision.Status.SKIPPED);
+        assertThat(d.step(Decision.Step.CONTROL).text()).contains("빈 방");
+        assertThat(d.step(Decision.Step.NOTIFY).text()).contains("관리자 화면");
+    }
+
+    @Test
+    @DisplayName("판단 카드: 센서가 끊기면 센서 카드를 열고 기기는 건드리지 않는다")
+    void decisionCardSensor() {
+        store.setOccupancy(1, true, clock.instant());
+        feed(20, 24, 0, 680, 0);
+        clock.advance(Duration.ofMinutes(11));
+        agent.tick();
+
+        Decision d = decisions.recent(50).stream().filter(x -> "SENSOR".equals(x.group())).findFirst().orElseThrow();
+        assertThat(d.step(Decision.Step.PREDICT).status()).isEqualTo(Decision.Status.SKIPPED);
+        assertThat(d.step(Decision.Step.CONTROL).status()).isEqualTo(Decision.Status.SKIPPED);
+        assertThat(d.step(Decision.Step.VERIFY).status()).isEqualTo(Decision.Status.RUNNING);
     }
 }

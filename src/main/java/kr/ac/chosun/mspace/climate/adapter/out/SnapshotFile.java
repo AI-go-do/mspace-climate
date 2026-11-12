@@ -12,6 +12,8 @@ import kr.ac.chosun.mspace.climate.appliance.ClimateFacade;
 import kr.ac.chosun.mspace.climate.application.Alert;
 import kr.ac.chosun.mspace.climate.application.AlertLog;
 import kr.ac.chosun.mspace.climate.application.ClimateStore;
+import kr.ac.chosun.mspace.climate.application.Decision;
+import kr.ac.chosun.mspace.climate.application.DecisionBook;
 import kr.ac.chosun.mspace.climate.domain.Metric;
 import kr.ac.chosun.mspace.climate.domain.Sample;
 import org.slf4j.Logger;
@@ -35,7 +37,7 @@ public class SnapshotFile {
         this.file = dataDir == null || dataDir.isBlank() ? null : Path.of(dataDir, NAME);
     }
 
-    public void save(ClimateStore store, ClimateFacade facade, AlertLog alerts) {
+    public void save(ClimateStore store, ClimateFacade facade, AlertLog alerts, DecisionBook decisions) {
         if (file == null) {
             return;
         }
@@ -50,7 +52,8 @@ public class SnapshotFile {
         }
         List<ApplianceState> states = new ArrayList<>();
         store.roomIds().forEach(id -> states.addAll(facade.states(id)));
-        Snapshot snap = new Snapshot(Instant.now(), rooms, states, facade.recentActions(500), alerts.recent(500));
+        Snapshot snap = new Snapshot(Instant.now(), rooms, states, facade.recentActions(500), alerts.recent(500),
+                decisions.recent(200));
         try {
             Files.createDirectories(file.getParent());
             Path tmp = file.resolveSibling(NAME + ".tmp");
@@ -61,7 +64,7 @@ public class SnapshotFile {
         }
     }
 
-    public void load(ClimateStore store, ClimateFacade facade, AlertLog alerts) {
+    public void load(ClimateStore store, ClimateFacade facade, AlertLog alerts, DecisionBook decisions) {
         if (file == null || !Files.exists(file)) {
             return;
         }
@@ -77,6 +80,7 @@ public class SnapshotFile {
             snap.appliances().forEach(facade::restore);
             facade.restoreActions(snap.actions());
             alerts.restore(snap.alerts());
+            decisions.restore(snap.decisions());
             log.info("스냅숏 불러옴: 방 기록 {}줄", snap.rooms().size());
         } catch (RuntimeException e) {
             log.warn("스냅숏을 못 읽어 빈 기록으로 시작해요: {}", e.getClass().getSimpleName());
@@ -84,7 +88,7 @@ public class SnapshotFile {
     }
 
     record Snapshot(Instant savedAt, List<RoomSnap> rooms, List<ApplianceState> appliances,
-                    List<ClimateFacade.Action> actions, List<Alert> alerts) {
+                    List<ClimateFacade.Action> actions, List<Alert> alerts, List<Decision> decisions) {
     }
 
     record RoomSnap(int roomId, Metric metric, long[] t, double[] v, boolean auto) {
