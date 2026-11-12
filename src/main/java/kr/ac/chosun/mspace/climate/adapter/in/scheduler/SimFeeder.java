@@ -85,6 +85,7 @@ public class SimFeeder {
                         s.occupied(), null, null, null, at), false, quiet);
             }
             boolean changed = before != null && before != s.occupied();
+            intake.simPeople(s.roomId(), s.people());
             n += intake.simulated(new SensorReading("sim-" + s.roomId() + "-" + sec, s.roomId(), "CO2", null,
                     (int) Math.round(s.co2()), round(s.temperatureC(), 2), round(s.humidityPct(), 1), at),
                     judge || changed, quiet) ? 1 : 0;

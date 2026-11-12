@@ -16,6 +16,18 @@ public enum Metric {
         return unit;
     }
 
+    /**
+     * 실제로 나올 수 있는 값 범위로 자른다(예측선이 직선이라 30분 뒤 CO2가 -200ppm으로 나오던 문제).
+     * CO2는 바깥 공기(약 400ppm) 밑으로, 습도는 0~100% 밖으로 안 간다
+     */
+    public double clamp(double v) {
+        return switch (this) {
+            case CO2 -> Math.max(400, v);
+            case HUMIDITY -> Math.max(0, Math.min(100, v));
+            case TEMPERATURE -> v;
+        };
+    }
+
     /** 화면 글자용 숫자: CO2·습도는 정수, 온도는 소수 한 자리(.0은 뺌) */
     public String format(double v) {
         if (this == TEMPERATURE) {

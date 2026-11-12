@@ -45,7 +45,7 @@ public class RoomAnalyzer {
             List<Finding> found = List.of();
             Forecast f = Forecast.none();
             if (!offline && latest != null) {
-                f = forecaster.forecast(h, b, now);
+                f = clamped(forecaster.forecast(h, b, now), m);
                 found = detector.detect(m, h, b, f, props.rules().get(m), now);
             }
             metrics.put(m, new RoomAnalysis.MetricAnalysis(latest, b, f, found));
@@ -57,5 +57,14 @@ public class RoomAnalyzer {
         }
         return new RoomAnalysis(room.roomId(), room.name(), room.occupied(), room.occupiedSince(), room.auto(), offline,
                 room.envAt(), metrics, all);
+    }
+
+    /** 예측선을 그 지표가 실제로 가질 수 있는 범위로 자른다 */
+    private static Forecast clamped(Forecast f, Metric m) {
+        if (f.points().isEmpty()) {
+            return f;
+        }
+        return new Forecast(f.slopePerMinute(), f.etaMinutes(), f.towards(),
+                f.points().stream().map(p -> new kr.ac.chosun.mspace.climate.domain.Sample(p.at(), m.clamp(p.value()))).toList());
     }
 }
