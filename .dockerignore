@@ -1,0 +1,10 @@
+# 이미지 빌드에 필요 없는 것은 보내지 않는다 (빌드가 빨라지고 비밀값이 섞일 일이 없다)
+.git
+.github
+.idea
+target
+docs
+*.md
+.env
+.env.*
+compose.yaml
