@@ -14,8 +14,8 @@ class BaselineCalculatorTest {
 
     static final ZoneId SEOUL = ZoneId.of("Asia/Seoul");
     static final Instant NOW = Instant.parse("2026-11-12T06:00:00Z"); // 15:00 KST
-    static final MetricRule TEMP = new MetricRule(18.0, 28.0, 1.5, 4, false);
-    static final MetricRule CO2 = new MetricRule(null, 1000.0, 150, 400, false);
+    static final MetricRule TEMP = new MetricRule(18.0, 28.0, 1.5, 4, false, null);
+    static final MetricRule CO2 = new MetricRule(null, 1000.0, 150, 400, false, null);
 
     final BaselineCalculator calc = new BaselineCalculator(SEOUL, 2.5, 30);
 
@@ -88,7 +88,7 @@ class BaselineCalculatorTest {
         var calc = new BaselineCalculator(ZoneId.of("Asia/Seoul"), 2.5, 30);
         // when
         Baseline usual = calc.baseline(history, t0.plusSeconds(3600), CO2);
-        Baseline fixed = calc.baseline(history, t0.plusSeconds(3600), new MetricRule(null, 1000.0, 150, 400, true));
+        Baseline fixed = calc.baseline(history, t0.plusSeconds(3600), new MetricRule(null, 1000.0, 150, 400, true, null));
         // then
         assertThat(usual.upper()).isLessThan(1000.0);
         assertThat(fixed.upper()).isEqualTo(1000.0);

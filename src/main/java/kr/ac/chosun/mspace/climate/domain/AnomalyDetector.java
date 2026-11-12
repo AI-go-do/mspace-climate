@@ -61,7 +61,7 @@ public final class AnomalyDetector {
         }
         Instant from = now.minus(stuck);
         List<Sample> window = recent.stream().filter(s -> !s.at().isBefore(from)).toList();
-        if (window.size() >= stuck.toMinutes() / 2 && window.stream().allMatch(s -> s.value() == v)
+        if (rule.checksStuck() && window.size() >= stuck.toMinutes() / 2 && window.stream().allMatch(s -> s.value() == v)
                 && !window.get(0).at().isAfter(from.plus(Duration.ofMinutes(5)))) {
             out.add(new Finding(Finding.Kind.STUCK, metric,
                     "%s가 %d분째 %s%s 그대로예요. 센서가 멈췄을 수 있어요".formatted(name, stuck.toMinutes(), metric.format(v),

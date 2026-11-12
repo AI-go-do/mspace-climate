@@ -12,7 +12,7 @@ import org.junit.jupiter.api.Test;
 class TrendAndAnomalyTest {
 
     static final Instant NOW = Instant.parse("2026-11-12T06:00:00Z");
-    static final MetricRule CO2 = new MetricRule(null, 1000.0, 150, 400, false);
+    static final MetricRule CO2 = new MetricRule(null, 1000.0, 150, 400, false, null);
     static final Baseline CO2_BASE = new Baseline(600.0, 60.0, null, 1000.0, 500, false, "HOUR");
 
     final TrendForecaster forecaster = new TrendForecaster(Duration.ofMinutes(30), 5);
@@ -102,5 +102,23 @@ class TrendAndAnomalyTest {
     @DisplayName("값이 5개보다 적으면 예측하지 않는다")
     void tooFewPoints() {
         assertThat(forecaster.forecast(line(2, 600, 50), CO2_BASE, NOW).etaMinutes()).isNull();
+    }
+
+    @Test
+    @DisplayName("멈춤을 보지 않는 값(습도)은 25분 그대로여도 센서 멈춤이 아니다. CO2는 멈춤")
+    void stuckCheckOffForCoarseSensor() {
+        // given: 25분 동안 값 하나
+        List<Sample> hum = line(25, 47, 0);
+        MetricRule humRule = new MetricRule(30.0, 70.0, 8, 20, false, false);
+        Baseline humBase = new Baseline(47.0, 2.0, 30.0, 70.0, 500, false, "HOUR");
+        List<Sample> co2 = line(25, 600, 0);
+
+        // when
+        List<Finding> h = detector.detect(Metric.HUMIDITY, hum, humBase, Forecast.none(), humRule, NOW);
+        List<Finding> c = detector.detect(Metric.CO2, co2, CO2_BASE, Forecast.none(), CO2, NOW);
+
+        // then
+        assertThat(h).extracting(Finding::kind).doesNotContain(Finding.Kind.STUCK);
+        assertThat(c).extracting(Finding::kind).contains(Finding.Kind.STUCK);
     }
 }

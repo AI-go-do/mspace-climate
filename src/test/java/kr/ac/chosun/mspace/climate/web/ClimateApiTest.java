@@ -22,6 +22,9 @@ import java.util.Date;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import kr.ac.chosun.mspace.climate.application.ClimateProperties;
+import kr.ac.chosun.mspace.climate.domain.Metric;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -56,6 +59,17 @@ class ClimateApiTest {
     int port;
 
     final HttpClient http = HttpClient.newHttpClient();
+
+    @Autowired
+    ClimateProperties props;
+
+    @Test
+    @DisplayName("설정: 센서 멈춤은 CO2로만 본다(온도·습도 stuck-check: false)")
+    void stuckCheckOnlyCo2() {
+        assertThat(props.rules().get(Metric.CO2).checksStuck()).isTrue();
+        assertThat(props.rules().get(Metric.TEMPERATURE).checksStuck()).isFalse();
+        assertThat(props.rules().get(Metric.HUMIDITY).checksStuck()).isFalse();
+    }
 
     @Test
     @DisplayName("실습실(1번 방) 실제 값 하나가 들어오면 1번은 REAL, 2~5번은 비슷한 값의 DERIVED로 보인다")
