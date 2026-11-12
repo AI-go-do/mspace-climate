@@ -55,7 +55,10 @@ public class GeminiJudge implements Judge, AutoCloseable {
     private final Clock clock;
     private final RestClient rest;
     private final ExecutorService worker;
-    private final Deque<Instant> asked = new ArrayDeque<>();
+    private final Deque<Ask> asked = new ArrayDeque<>();
+
+    private record Ask(Instant at, int roomId) {
+    }
     /** 지난 1분 동안 제미나이를 부른 시각(판단 한 번에 여러 번) */
     private final Deque<Instant> calls = new ArrayDeque<>();
 
@@ -81,7 +84,7 @@ public class GeminiJudge implements Judge, AutoCloseable {
 
     @Override
     public void ask(Request r, Listener l) {
-        String over = take();
+        String over = take(r.roomId());
         if (over != null) {
             l.fallback(r, over);
             return;
@@ -89,24 +92,34 @@ public class GeminiJudge implements Judge, AutoCloseable {
         worker.submit(() -> run(r, l));
     }
 
-    /** 한도 안이면 한 번 쓰고 null, 넘었으면 이유 */
-    synchronized String take() {
+    /** 한도 안이면 한 번 쓰고 null, 넘었으면 이유(화면에 "규칙으로 판단(이유)") */
+    synchronized String take(int roomId) {
         Instant now = clock.instant();
-        while (!asked.isEmpty() && asked.peekFirst().isBefore(now.minus(Duration.ofDays(1)))) {
+        while (!asked.isEmpty() && asked.peekFirst().at().isBefore(now.minus(Duration.ofDays(1)))) {
             asked.pollFirst();
         }
         // 이번 판단이 보통 쓰는 2번이 1분 한도 안에 들어가야 시작한다
         if (recentCalls(now) + 2 > props.maxCallsPerMinute()) {
             return "제미나이 분당 %d번 한도".formatted(props.maxCallsPerMinute());
         }
-        long hour = asked.stream().filter(t -> t.isAfter(now.minus(Duration.ofHours(1)))).count();
+        Instant cool = now.minus(props.roomCooldown());
+        if (asked.stream().anyMatch(x -> x.roomId() == roomId && x.at().isAfter(cool))) {
+            return "같은 방은 %d분에 한 번만 제미나이".formatted(props.roomCooldown().toMinutes());
+        }
+        Instant hourAgo = now.minus(Duration.ofHours(1));
+        long hour = asked.stream().filter(x -> x.at().isAfter(hourAgo)).count();
         if (hour >= props.maxPerHour()) {
             return "제미나이 시간당 %d번 한도".formatted(props.maxPerHour());
+        }
+        boolean other = !props.priorityRooms().isEmpty() && !props.priorityRooms().contains(roomId);
+        if (other && asked.stream().filter(x -> x.at().isAfter(hourAgo) && !props.priorityRooms().contains(x.roomId()))
+                .count() >= props.maxPerHourOthers()) {
+            return "다른 방은 시간당 %d번만 제미나이(실제 방 몫)".formatted(props.maxPerHourOthers());
         }
         if (asked.size() >= props.maxPerDay()) {
             return "제미나이 하루 %d번 한도".formatted(props.maxPerDay());
         }
-        asked.addLast(now);
+        asked.addLast(new Ask(now, roomId));
         return null;
     }
 

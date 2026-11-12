@@ -72,7 +72,7 @@ class GeminiJudgeTest {
     GeminiJudge judge(Instant now) {
         JudgeProperties p = new JudgeProperties(true, "test-key", "gemini-test",
                 "http://127.0.0.1:" + GEMINI.getAddress().getPort(), "http://127.0.0.1:" + port, 2, 3, 5,
-                Duration.ofSeconds(10), 0);
+                Duration.ofSeconds(10), 0, null, null, 0);
         return new GeminiJudge(p, json, new MutableClock(now));
     }
 
@@ -125,53 +125,75 @@ class GeminiJudgeTest {
     @Test
     @DisplayName("시간당 한도를 넘으면 제미나이를 부르지 않고 바로 규칙에게 넘긴다")
     void hourlyLimit() {
+        int n = 1;
         try (GeminiJudge judge = judge(Instant.now())) {
-            assertThat(judge.take()).isNull();
-            assertThat(judge.take()).isNull();
-            assertThat(judge.take()).isEqualTo("제미나이 시간당 2번 한도");
+            assertThat(judge.take(n++)).isNull();
+            assertThat(judge.take(n++)).isNull();
+            assertThat(judge.take(n++)).isEqualTo("제미나이 시간당 2번 한도");
         }
     }
 
     @Test
     @DisplayName("하루 한도는 한 시간이 지나도 남는다")
     void dailyLimit() {
+        int n = 1;
         MutableClock clock = new MutableClock(Instant.parse("2026-11-12T00:00:00Z"));
-        JudgeProperties p = new JudgeProperties(true, "k", null, null, null, 2, 3, 0, null, 0);
+        JudgeProperties p = new JudgeProperties(true, "k", null, null, null, 2, 3, 0, null, 0, null, null, 0);
         try (GeminiJudge judge = new GeminiJudge(p, json, clock)) {
-            judge.take();
-            judge.take();
+            judge.take(n++);
+            judge.take(n++);
             clock.advance(Duration.ofMinutes(61));
-            assertThat(judge.take()).isNull();
+            assertThat(judge.take(n++)).isNull();
             clock.advance(Duration.ofMinutes(61));
-            assertThat(judge.take()).isEqualTo("제미나이 하루 3번 한도");
+            assertThat(judge.take(n++)).isEqualTo("제미나이 하루 3번 한도");
             clock.advance(Duration.ofDays(1));
-            assertThat(judge.take()).isNull();
+            assertThat(judge.take(n++)).isNull();
         }
     }
 
     @Test
     @DisplayName("제미나이 호출은 1분에 정해진 번수까지만, 1분이 지나면 다시 부른다")
     void callsPerMinute() {
+        int n = 1;
         MutableClock clock = new MutableClock(Instant.parse("2026-11-12T00:00:00Z"));
-        JudgeProperties p = new JudgeProperties(true, "k", null, null, null, 100, 100, 0, null, 3);
+        JudgeProperties p = new JudgeProperties(true, "k", null, null, null, 100, 100, 0, null, 3, null, null, 0);
         try (GeminiJudge judge = new GeminiJudge(p, json, clock)) {
             assertThat(judge.callSlot()).isNull();
             assertThat(judge.callSlot()).isNull();
             // 2번 쓴 뒤에는 새 판단(보통 2번 필요)을 시작하지 않는다
-            assertThat(judge.take()).isEqualTo("제미나이 분당 3번 한도");
+            assertThat(judge.take(n++)).isEqualTo("제미나이 분당 3번 한도");
             assertThat(judge.callSlot()).isNull();
             assertThat(judge.callSlot()).isEqualTo("제미나이 분당 3번 한도");
             clock.advance(Duration.ofSeconds(61));
-            assertThat(judge.take()).isNull();
+            assertThat(judge.take(n++)).isNull();
             assertThat(judge.callSlot()).isNull();
+        }
+    }
+
+    @Test
+    @DisplayName("같은 방은 60분에 한 번만 묻고, 실제 방 밖(가상 방)은 시간당 1번이라 실제 방 몫이 남는다")
+    void roomCooldownAndPriority() {
+        MutableClock clock = new MutableClock(Instant.parse("2026-11-12T00:00:00Z"));
+        JudgeProperties p = new JudgeProperties(true, "k", null, null, null, 2, 48, 0, null, 0,
+                Duration.ofMinutes(60), List.of(1), 1);
+        try (GeminiJudge judge = new GeminiJudge(p, json, clock)) {
+            assertThat(judge.take(3)).isNull();
+            clock.advance(Duration.ofMinutes(5));
+            assertThat(judge.take(3)).isEqualTo("같은 방은 60분에 한 번만 제미나이");
+            assertThat(judge.take(4)).isEqualTo("다른 방은 시간당 1번만 제미나이(실제 방 몫)");
+            // 실제 방(1번)은 남겨 둔 몫으로 묻는다
+            assertThat(judge.take(1)).isNull();
+            clock.advance(Duration.ofMinutes(61));
+            assertThat(judge.take(4)).isNull();
+            assertThat(judge.take(3)).isEqualTo("다른 방은 시간당 1번만 제미나이(실제 방 몫)");
         }
     }
 
     @Test
     @DisplayName("키가 비면 판단 에이전트는 꺼져 있다(규칙만)")
     void noKeyDisabled() {
-        assertThat(new JudgeProperties(true, " ", null, null, null, 0, 0, 0, null, 0).ready()).isFalse();
-        assertThat(new JudgeProperties(false, "k", null, null, null, 0, 0, 0, null, 0).ready()).isFalse();
+        assertThat(new JudgeProperties(true, " ", null, null, null, 0, 0, 0, null, 0, null, null, 0).ready()).isFalse();
+        assertThat(new JudgeProperties(false, "k", null, null, null, 0, 0, 0, null, 0, null, null, 0).ready()).isFalse();
     }
 
     static class Recorder implements Judge.Listener {
