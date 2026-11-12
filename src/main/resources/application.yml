@@ -92,19 +92,22 @@ climate:
     enabled: ${CLIMATE_REPLAY_ENABLED:false}
     backfill-minutes: 120
   # 방 공기 시뮬레이션 (재웅 11/12, FR-DEV-107). 실습실 센서가 멈춘 동안 1초마다 방 5개 값을 만들고, 오디가 켠 기기가 값에 반영된다.
-  # 가끔(평균 25분) 사람이 있는 방 하나에 온도 상승을 만든다. 재실은 core 방 현황(실제 예약·입실)을 쓴다. 실제 값이 오는 방은 실제 값을 쓴다. 화면에는 "시뮬레이션"
+  # 가끔(평균 4시간) 사람이 있는 방 하나에 온도·CO2 상승을 만든다(실제 방처럼 이상은 하루 몇 번만, 재웅 11/13).
+  # 시연 때는 POST /api/climate/sim/rooms/{방}/events로 바로 일으킨다. 재실은 core 방 현황(실제 예약·입실)을 쓴다.
+  # 실제 값이 오는 방은 실제 값을 쓴다. 화면에는 "시뮬레이션". 하루 이상 건수는 eval/SimDayCard(README)
   sim:
     enabled: ${CLIMATE_SIM_ENABLED:true}
     backfill-minutes: 180
-    event-every-minutes: 25
+    event-every-minutes: 240
     judge-every-seconds: 10
     # 실제로 시험하는 방(재실은 core 실제 예약·입실). 나머지 방은 시뮬레이션이 손님(입실·인원·퇴실)을 만든다(재웅 11/12)
     real-rooms: ${CLIMATE_SIM_REAL_ROOMS:1}
     big-rooms: 5            # 5~8명 방
     people-small: 3,5       # 작은 방 손님 수(최소,최대)
     people-big: 5,8
-    gap-minutes: 10,40      # 가상 방이 비어 있는 시간(최소,최대)
+    gap-minutes: 20,90      # 가상 방이 비어 있는 시간(최소,최대)
     stay-minutes: 50,120    # 가상 방에 머무는 시간(10분 단위로 맞춤)
+    open-hours: 9,22        # 가상 손님이 오는 시간(밤에는 빈 방)
   appliances: []
   # 방 사용자 알림: core에 부탁(POST {core-url}/internal/air-alerts). 토큰이 비면 관리자 화면에만 보인다
   notify:

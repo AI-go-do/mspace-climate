@@ -80,6 +80,11 @@ public class SimFeeder {
         feed(now, now.getEpochSecond() % judgeEvery == 0, false);
     }
 
+    /** 시연용: 이 방에 지금 상황을 일으키고 바로 판단한다. 없는 방이면 false */
+    public synchronized boolean trigger(int roomId, RoomSimulator.Event kind) {
+        return sim.trigger(roomId, kind, clock.instant());
+    }
+
     private int feed(Instant at, boolean judge, boolean quiet) {
         int n = 0;
         long sec = at.getEpochSecond();
