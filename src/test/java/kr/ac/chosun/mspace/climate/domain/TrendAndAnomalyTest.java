@@ -12,7 +12,7 @@ import org.junit.jupiter.api.Test;
 class TrendAndAnomalyTest {
 
     static final Instant NOW = Instant.parse("2026-11-12T06:00:00Z");
-    static final MetricRule CO2 = new MetricRule(null, 1000.0, 150, 400);
+    static final MetricRule CO2 = new MetricRule(null, 1000.0, 150, 400, false);
     static final Baseline CO2_BASE = new Baseline(600.0, 60.0, null, 1000.0, 500, false, "HOUR");
 
     final TrendForecaster forecaster = new TrendForecaster(Duration.ofMinutes(30), 5);
