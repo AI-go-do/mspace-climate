@@ -114,8 +114,8 @@ class ClimateConfig {
     }
 
     @Bean
-    SensorRegistry sensorRegistry(ClimateStore store, MqttProperties m) {
-        return new SensorRegistry(store.roomIds(), m.spots());
+    SensorRegistry sensorRegistry(MqttProperties m) {
+        return new SensorRegistry(m.autoRooms() == null ? List.of() : m.autoRooms(), m.spots());
     }
 
     @Bean

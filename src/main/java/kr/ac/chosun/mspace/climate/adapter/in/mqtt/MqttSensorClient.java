@@ -113,7 +113,7 @@ public class MqttSensorClient implements MqttCallbackExtended, InitializingBean,
             if (r == null || !r.hasAir() || props.location() == null || !props.location().equals(r.location())) {
                 return;
             }
-            Integer room = sensors.roomFor(r.spot());
+            Integer room = sensors.roomFor(r.spot(), r.co2() != null);
             sensors.seen(r.devEui(), r.spot(), r.profile(), room, r.at(), r.co2(), r.temperatureC(), r.humidityPct());
             if (room == null) {
                 return;

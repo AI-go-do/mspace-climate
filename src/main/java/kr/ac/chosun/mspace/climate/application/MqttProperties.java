@@ -13,10 +13,12 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * @param clientId       브로커에서 겹치면 서로 끊으므로 수집기와 다른 이름
  * @param rawTopic       센서 원시 값 토픽 (ChirpStack uplink)
  * @param location       이 공간(태그 location) 센서만 받는다
- * @param spots          센서 자리(태그 spot) → 방 번호. 없는 자리는 받은 순서대로 빈 방에 붙인다
+ * @param spots          센서 자리(태그 spot) → 방 번호
+ * @param autoRooms      설정에 없는 CO2 센서를 받은 순서대로 붙일 방 (비면 자동으로 안 붙임)
  * @param inferenceTopic 보드 A 시계열 모델 결과 토픽 (retained)
  */
 @ConfigurationProperties("climate.mqtt")
 public record MqttProperties(boolean enabled, String uri, String username, String password, String clientId,
-                             String rawTopic, String location, Map<String, Integer> spots, String inferenceTopic) {
+                             String rawTopic, String location, Map<String, Integer> spots, java.util.List<Integer> autoRooms,
+                             String inferenceTopic) {
 }

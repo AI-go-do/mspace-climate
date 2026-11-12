@@ -66,10 +66,10 @@ class MqttSensorClientTest {
                 3, new RoomDeriver.Offset(0, 0, -30, 0, 0, 0, 10)));
         pushed = new ArrayList<>();
         intake = new ReadingIntake(store, deriver, agent, (r, src) -> pushed.add(r.roomId() + ":" + src));
-        sensors = new SensorRegistry(List.of(1, 2, 3), Map.of("앞쪽", 1));
+        sensors = new SensorRegistry(List.of(2, 3), Map.of("앞쪽", 1));
         model = new BoardModel();
         var mp = new MqttProperties(true, "tcp://127.0.0.1:1", null, null, "test", "application/+/device/+/event/up",
-                "실습실", Map.of("앞쪽", 1), "aip/team5/jaeung/inference/+/state");
+                "실습실", Map.of("앞쪽", 1), List.of(2, 3), "aip/team5/jaeung/inference/+/state");
         client = new MqttSensorClient(mp, intake, sensors, model, clock);
     }
 
@@ -113,6 +113,19 @@ class MqttSensorClientTest {
         // 2번 방은 실제 센서 값 하나만 (1번 방에서 만든 값은 안 섞임)
         assertThat(store.view(2).history().get(Metric.CO2)).extracting(s -> s.value()).containsExactly(700.0);
         assertThat(store.view(3).history().get(Metric.CO2)).extracting(s -> s.value()).containsExactly(770.0);
+    }
+
+    @Test
+    @DisplayName("온습도만 재는 처음 보는 센서는 방을 차지하지 않는다 (목록에만)")
+    void tempOnlySensorNotAssigned() {
+        client.messageArrived(TOPIC, msg("""
+                {"deviceInfo":{"devEui":"t1","tags":{"location":"실습실","spot":"중앙 우측"}},"fCnt":1,
+                 "object":{"temperature":23.1,"humidity":40}}"""));
+        client.messageArrived(TOPIC, msg(raw("d2", "실습실", "뒤쪽", 1, 700)));
+
+        assertThat(sensors.list()).extracting(SensorRegistry.Sensor::id, SensorRegistry.Sensor::roomId)
+                .containsExactly(org.assertj.core.groups.Tuple.tuple("d2", 2), org.assertj.core.groups.Tuple.tuple("t1", null));
+        assertThat(intake.directRooms()).containsExactly(2);
     }
 
     @Test
