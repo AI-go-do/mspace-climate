@@ -6,6 +6,9 @@ import java.time.Duration;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
+import kr.ac.chosun.mspace.climate.adapter.in.mqtt.MqttSensorClient;
+import kr.ac.chosun.mspace.climate.adapter.in.web.LiveFeed;
+import kr.ac.chosun.mspace.climate.adapter.in.web.LiveReading;
 import kr.ac.chosun.mspace.climate.adapter.out.CoreRoomStatus;
 import kr.ac.chosun.mspace.climate.adapter.out.LogNotifier;
 import kr.ac.chosun.mspace.climate.adapter.out.SnapshotFile;
@@ -21,12 +24,17 @@ import kr.ac.chosun.mspace.climate.application.ClimateProperties;
 import kr.ac.chosun.mspace.climate.application.ClimateStore;
 import kr.ac.chosun.mspace.climate.application.DecisionBook;
 import kr.ac.chosun.mspace.climate.application.Notifier;
+import kr.ac.chosun.mspace.climate.application.BoardModel;
+import kr.ac.chosun.mspace.climate.application.MqttProperties;
+import kr.ac.chosun.mspace.climate.application.ReadingIntake;
 import kr.ac.chosun.mspace.climate.application.RoomAnalyzer;
+import kr.ac.chosun.mspace.climate.application.SensorRegistry;
 import kr.ac.chosun.mspace.climate.domain.AnomalyDetector;
 import kr.ac.chosun.mspace.climate.domain.BaselineCalculator;
 import kr.ac.chosun.mspace.climate.domain.Forecaster;
 import kr.ac.chosun.mspace.climate.domain.TrendForecaster;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -94,6 +102,33 @@ class ClimateConfig {
     CoreRoomStatus coreRoomStatus(@org.springframework.beans.factory.annotation.Value("${climate.core-uri:http://core:8080}") String core,
                                   Clock clock) {
         return new CoreRoomStatus(core, clock);
+    }
+
+    @Bean
+    ReadingIntake readingIntake(ClimateStore store, ClimateProperties p, ClimateAgent agent, LiveFeed live) {
+        return new ReadingIntake(store, p.derive(), agent, (r, source) -> {
+            if ("CO2".equals(r.kind())) {
+                live.publish("reading", LiveReading.of(r, source));
+            }
+        });
+    }
+
+    @Bean
+    SensorRegistry sensorRegistry(ClimateStore store, MqttProperties m) {
+        return new SensorRegistry(store.roomIds(), m.spots());
+    }
+
+    @Bean
+    BoardModel boardModel() {
+        return new BoardModel();
+    }
+
+    /** 교육장 브로커 직접 구독. climate.mqtt.enabled=true일 때만 (테스트·로컬은 끔) */
+    @Bean
+    @ConditionalOnProperty(name = "climate.mqtt.enabled", havingValue = "true")
+    MqttSensorClient mqttSensorClient(MqttProperties m, ReadingIntake intake, SensorRegistry sensors, BoardModel model,
+                                      Clock clock) {
+        return new MqttSensorClient(m, intake, sensors, model, clock);
     }
 
     @Bean

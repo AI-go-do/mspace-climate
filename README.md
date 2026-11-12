@@ -7,13 +7,16 @@
 ## 흐름
 
 ```
-교육장 센서 → 교육장 MQTT 브로커 → 젯슨 보드 A(device room_env.py) → core POST /api/sensor-events (저장)
+교육장 센서 → 교육장 MQTT 브로커(data.withio.net:1883) ─┬ climate가 직접 구독 (실습실 센서, 받은 그 순간)
+                                                      ├ 보드 A 시계열 모델 결과(aip/team5/jaeung/inference/<공간>/state) → climate 직접 구독
+                                                      └ 젯슨(device room_env.py) → core POST /api/sensor-events (저장)
                                                                      └ gateway가 core가 받아 준 값만 사본 → climate /internal/sensor-events
 climate: 1분마다  재실 읽기(core /api/rooms/status) → 기준선·예측·이상 탐지 → 알림 → 기기 파사드 → 조치 기록
 관리자 화면 ← gateway /api/climate/** ← climate
 ```
 
-- 실제 공기 센서는 실습실 하나라 **1번 방만 실제 값**이에요. 2~5번 방은 1번 방 실제 값 + 방마다 작은 차이 + 느린 흔들림으로 만들어요(`climate.derive`, 응답에 `source: DERIVED`). 실제 센서를 다는 방은 설정에서 빼면 그 방 값을 그대로 써요
+- **MQTT 직접 구독**(계정이 있으면 켜짐): 실습실 센서 자리(`spot`)마다 방 하나에 붙여요. 설정 `climate.mqtt.spots`가 먼저고, 없는 자리는 받은 순서대로 빈 방에 붙어요(`GET /api/climate/sensors`로 확인). 이렇게 받는 방은 만든 값·게이트웨이 사본 공기 값을 쓰지 않아요(재실 이벤트는 받음)
+- MQTT가 꺼져 있으면 실제 공기 센서는 실습실 하나라 **1번 방만 실제 값**이에요. 2~5번 방은 1번 방 실제 값 + 방마다 작은 차이 + 느린 흔들림으로 만들어요(`climate.derive`, 응답에 `source: DERIVED`). 실제 센서를 다는 방은 설정에서 빼면 그 방 값을 그대로 써요
 - 재실은 2~5번 방도 진짜예요(core 방 현황: 센서 재실, 모르면 예약 사용 중)
 
 ## 판단 (오디)
@@ -58,6 +61,7 @@ ClimateAgent / 관리자 화면 ──▶ ClimateFacade ("1번 방 냉방 25도"
 | `GET /api/climate/log?limit=50` | 오디 조치 기록(누가·언제·왜) + 알림 | 로그인 |
 | `GET /api/climate/stream` | 실시간 연결(SSE). `reading`(새 센서 값, 받은 그 순간) · `decision`(오디 판단 카드가 바뀜) · `tick`(1분 판단 끝). 20초마다 ping. 화면은 `fetch`로 읽음(EventSource는 Authorization 헤더를 못 붙임) | 로그인 |
 | `GET /api/climate/decisions?limit=20&roomId=` | 오디 판단 카드: `DETECT` 탐지 → `PREDICT` 예측 → `NOTIFY` 알림 → `CONTROL` 제어 → `VERIFY` 다시 확인. 단계마다 `RUNNING`·`DONE`·`SKIPPED`·`FAILED` + 한 줄 이유. 다시 확인은 값이 평소로 돌아올 때까지 `RUNNING`(30분 넘으면 `FAILED`로 닫고 새 카드) | 로그인 |
+| `GET /api/climate/sensors` | MQTT로 본 센서(자리·붙은 방·마지막 값, 기기 번호는 끝 4자리)와 보드 A 모델 최신 결과(60분 예측·이상 점수·재실·환기 확률) | 로그인 |
 | `POST /api/climate/rooms/{roomId}/appliances/{id}/commands` | `{"power":"ON","mode":"COOL","targetC":25}` | 관리자(core가 판단) |
 | `PUT /api/climate/rooms/{roomId}/auto` | `{"enabled":false}` 오디 자동 제어 끔 | 관리자 |
 
@@ -77,6 +81,9 @@ DB를 따로 두지 않아요. 센서 원본은 core DB(`sensor_event`)에 있�
 | `CORE_URI` | `http://core:8080` | 재실·관리자 확인 |
 | `CLIMATE_DATA_DIR` | `/data` | 스냅숏 폴더 |
 | `PORT` · `MANAGEMENT_PORT` | `8095` · `8096` | 밖으로 열지 않음 |
+| `CLIMATE_MQTT_USERNAME` · `CLIMATE_MQTT_PASSWORD` | (비움) | 교육장 브로커 계정. 비면 직접 구독을 안 해요(.env에만, 저장소에 안 넣음) |
+| `CLIMATE_MQTT_URI` | `tcp://data.withio.net:1883` | 브로커 |
+| `CLIMATE_MQTT_CLIENT_ID` | `mspace-climate-<임의>` | 같은 이름이 둘이면 브로커가 서로 끊어요(dev·prod·보드 A 수집기) |
 
 숫자(15분·2.5·30분 등)는 `application.yml`의 `climate.*`에 있어요. 기준값 대부분은 첫 판 임시값이라 며칠 실측 뒤 맞춰요.
 

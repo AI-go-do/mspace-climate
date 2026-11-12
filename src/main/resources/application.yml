@@ -52,6 +52,17 @@ climate:
     cool-max: 26
     heat-min: 20
     heat-max: 22
+  # 교육장 MQTT 브로커 직접 구독 (재웅 11/12). 계정은 .env의 CLIMATE_MQTT_USERNAME·PASSWORD. 계정이 비면 구독하지 않는다
+  mqtt:
+    enabled: ${CLIMATE_MQTT_ENABLED:true}
+    uri: ${CLIMATE_MQTT_URI:tcp://data.withio.net:1883}
+    username: ${CLIMATE_MQTT_USERNAME:}
+    password: ${CLIMATE_MQTT_PASSWORD:}
+    client-id: ${CLIMATE_MQTT_CLIENT_ID:}   # 비면 mspace-climate-<임의 6자리>. 같은 이름이 둘이면 브로커가 서로 끊는다(dev·prod·수집기)
+    raw-topic: application/+/device/+/event/up
+    location: 실습실         # 이 공간 센서만 받는다
+    spots: {}               # 센서 자리 → 방 번호. 비면 받은 순서대로 빈 방에 붙인다 (/api/climate/sensors로 확인)
+    inference-topic: aip/team5/jaeung/inference/+/state   # 보드 A 시계열 모델 결과
   # 기기 목록. 비면 방마다 가상 에어컨(ac-N)·공기청정기(purifier-N).
   # 실제 기기 예 (어댑터만 바꾸면 됨):
   #   - { id: ac-1, room: 1, kind: AIRCON, adapter: ir, brand: SAMSUNG, url: "http://<ESP32 노드>" }
