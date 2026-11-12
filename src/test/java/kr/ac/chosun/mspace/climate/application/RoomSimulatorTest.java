@@ -56,7 +56,7 @@ class RoomSimulatorTest {
     }
 
     @Test
-    @DisplayName("실제로 입실한 방(core 재실 true)만 CO2가 1000ppm 가까이 오르고, 나가면 내려간다")
+    @DisplayName("실제로 입실한 방(core 재실 true)만 CO2가 오르고(4명 약 860ppm, 1000 밑), 나가면 내려간다")
     void realCheckInRaisesCo2() {
         // given
         RoomSimulator sim = new RoomSimulator(Map.of(1, 4), 1e9, SEOUL, 5);
@@ -70,7 +70,7 @@ class RoomSimulatorTest {
         var in = sim.read().get(0);
         // then
         assertThat(in.occupied()).isTrue();
-        assertThat(in.co2()).isGreaterThan(950.0);
+        assertThat(in.co2()).isBetween(800.0, 1000.0);
         // when: 퇴실 60분
         for (int i = 0; i < 60; i++) {
             t = t.plusSeconds(60);
@@ -81,7 +81,7 @@ class RoomSimulatorTest {
     }
 
     @Test
-    @DisplayName("온도 상승 상황은 사람이 있는 방에만 생긴다")
+    @DisplayName("상황(온도·CO2 상승)은 사람이 있는 방에만 생긴다")
     void heatEventOnlyInOccupiedRoom() {
         // given: 1번 방만 입실, 상황은 1분마다
         RoomSimulator sim = new RoomSimulator(Map.of(1, 4, 2, 4), 1, SEOUL, 9);
@@ -94,7 +94,7 @@ class RoomSimulatorTest {
         }
         // then
         var rooms = sim.read();
-        assertThat(rooms.get(0).event()).isEqualTo("HEAT");
+        assertThat(rooms.get(0).event()).isIn("HEAT", "STUFFY");
         assertThat(rooms.get(1).event()).isNull();
     }
 
@@ -179,6 +179,86 @@ class RoomSimulatorTest {
         assertThat(peak).isGreaterThan(800.0);
         assertThat(sim.isVirtual(2)).isTrue();
         assertThat(sim.isVirtual(1)).isFalse();
+    }
+
+    @Test
+    @DisplayName("실제 방처럼 이상은 드물게: 보통 인원(작은 방 4명·큰 방 7명)이 2시간 있어도 CO2가 1000ppm 밑이고 온도는 1.5°C 안쪽만 오른다")
+    void ordinaryUseStaysUnderLimit() {
+        // given: 1번 작은 방(4명), 5번 큰 방(7명), 상황은 안 생김
+        RoomSimulator sim = new RoomSimulator(Map.of(1, 4, 5, 7), 1e9, SEOUL, 5);
+        sim.start(T0);
+        double start1 = sim.read().get(0).temperatureC();
+        Instant t = T0;
+        double co2Peak = 0;
+        double tempPeak = 0;
+        // when: 두 방 다 2시간 사용
+        for (int i = 0; i < 120; i++) {
+            t = t.plusSeconds(60);
+            sim.step(t, 1, Map.of(), Map.of(1, true, 5, true));
+            for (var s : sim.read()) {
+                co2Peak = Math.max(co2Peak, s.co2());
+            }
+            tempPeak = Math.max(tempPeak, sim.read().get(0).temperatureC());
+        }
+        // then
+        assertThat(co2Peak).isBetween(800.0, 1000.0);
+        assertThat(tempPeak - start1).isLessThan(1.5);
+    }
+
+    @Test
+    @DisplayName("가상 손님은 문 여는 시간(9~22시)에만 온다: 밤 23시~아침 9시에는 빈 방")
+    void visitorsOnlyInOpenHours() {
+        // given: 2번 가상 방, 22:00 KST부터
+        var visitors = new RoomSimulator.Visitors(Map.of(2, new int[] {3, 5}), 20, 90, 50, 120, 9, 22);
+        RoomSimulator sim = new RoomSimulator(Map.of(2, 4), 1e9, SEOUL, 3, visitors);
+        Instant night = Instant.parse("2026-11-12T13:00:00Z");
+        sim.start(night);
+        Instant t = night;
+        boolean nightBusy = false;
+        boolean dayBusy = false;
+        // when: 다음 날 15시까지
+        for (int i = 0; i < 17 * 60; i++) {
+            t = t.plusSeconds(60);
+            sim.step(t, 1, Map.of(), Map.of());
+            int h = t.atZone(SEOUL).getHour();
+            boolean busy = sim.read().get(0).occupied();
+            if (h >= 23 || h < 9) {
+                nightBusy |= busy;
+            } else if (h >= 9) {
+                dayBusy |= busy;
+            }
+        }
+        // then
+        assertThat(nightBusy).isFalse();
+        assertThat(dayBusy).isTrue();
+    }
+
+    @Test
+    @DisplayName("시연용 상황: STUFFY는 20분 안에 CO2를 1000ppm 넘게, HEAT는 온도를 2°C 넘게 올린다. 빈 가상 방이면 손님부터 들인다")
+    void triggerMakesAnomaly() {
+        // given: 2번 가상 방이 비어 있는 밤(손님 안 옴)
+        var visitors = new RoomSimulator.Visitors(Map.of(2, new int[] {3, 5}), 20, 90, 50, 120, 9, 22);
+        RoomSimulator sim = new RoomSimulator(Map.of(1, 4, 2, 4), 1e9, SEOUL, 9, visitors);
+        Instant night = Instant.parse("2026-11-12T14:00:00Z");
+        sim.start(night);
+        double temp0 = sim.read().get(0).temperatureC();
+        // when
+        assertThat(sim.trigger(2, RoomSimulator.Event.STUFFY, night)).isTrue();
+        assertThat(sim.trigger(1, RoomSimulator.Event.HEAT, night)).isTrue();
+        assertThat(sim.trigger(9, RoomSimulator.Event.HEAT, night)).isFalse();
+        Instant t = night;
+        double co2Peak = 0;
+        double tempPeak = 0;
+        for (int i = 0; i < 20; i++) {
+            t = t.plusSeconds(60);
+            sim.step(t, 1, Map.of(), Map.of(1, true));
+            co2Peak = Math.max(co2Peak, sim.read().get(1).co2());
+            tempPeak = Math.max(tempPeak, sim.read().get(0).temperatureC());
+        }
+        // then
+        assertThat(sim.read().get(1).occupied()).isTrue();
+        assertThat(co2Peak).isGreaterThan(1000.0);
+        assertThat(tempPeak - temp0).isGreaterThan(2.0);
     }
 
     @Test

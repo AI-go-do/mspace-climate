@@ -161,6 +161,15 @@ class ClimateApiTest {
     }
 
     @Test
+    @DisplayName("시연용 상황 일으키기는 관리자만, 시뮬레이션이 꺼져 있으면 404 SIM_OFF")
+    void simEventAdminOnly() throws Exception {
+        assertThat(post("/api/climate/sim/rooms/2/events", token(2), "{\"kind\":\"HEAT\"}").statusCode()).isEqualTo(403);
+        HttpResponse<String> off = post("/api/climate/sim/rooms/2/events", token(1), "{\"kind\":\"HEAT\"}");
+        assertThat(off.statusCode()).isEqualTo(404);
+        assertThat(off.body()).contains("SIM_OFF");
+    }
+
+    @Test
     @DisplayName("관리자는 기기를 바꾸고, 조치 기록에 ADMIN으로 남는다")
     void adminCommand() throws Exception {
         HttpResponse<String> res = post("/api/climate/rooms/1/appliances/ac-1/commands", token(1),

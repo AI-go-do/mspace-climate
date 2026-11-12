@@ -18,8 +18,12 @@ import java.util.Random;
  *   쉬는 틈 → 입실(방 크기 안 인원) → 머문 뒤 퇴실을 되풀이해 관제 화면이 살아 있게 한다
  * - 사람이 있는 방은 CO2·온도·습도가 오르고, 비면 천천히 내려간다
  * - 오디가 켠 기기가 값에 실제로 반영된다: 에어컨 냉방은 목표 온도로, 제습은 습도를 낮추고, 환풍기는 CO2를 바깥 수준으로
- * - 가끔 사람이 있는 방에 "상황"(햇빛·난방기로 온도 상승)이 생긴다. 오디가 탐지 → 예측 → 제어하는 장면을 만든다
- * 숫자는 가정이다. 화면·API에는 source=SIM으로 밝힌다.
+ * - 가끔(평균 4시간에 한 번) 사람이 있는 방에 "상황"(햇빛·난방기로 온도 상승, 문 닫고 붐벼 CO2 상승)이 생긴다.
+ *   오디가 탐지 → 예측 → 제어하는 장면을 만든다. 시연 때는 trigger로 바로 일으킨다
+ * - 실제 방처럼 이상은 드물게(재웅 11/13 "실제라면 이상탐지가 많이 나오면 그게 더 이상한 거지"): 보통 인원이면
+ *   CO2는 1000ppm 밑(4명 약 860ppm), 온도는 1°C 안팎만 오른다. 가상 손님은 문 여는 시간(9~22시)에만 온다.
+ *   큰 방(5번)은 공간이 커서 같은 인원에 덜 오른다
+ * 숫자는 가정이다. 화면·API에는 source=SIM으로 밝힌다. 하루 이상 건수는 eval/SimDayCard로 잰다.
  */
 public class RoomSimulator {
 
@@ -35,11 +39,23 @@ public class RoomSimulator {
 
     /**
      * 가상 방 손님 만들기. people: 방 번호 → {최소, 최대} 인원. 이 맵에 있는 방만 가상 방이다.
-     * 빈 틈 gapMin~gapMax분 뒤 들어와 stayMin~stayMax분 머문다(10분 단위)
+     * 빈 틈 gapMin~gapMax분 뒤 들어와 stayMin~stayMax분 머문다(10분 단위). openHour~closeHour시에만 온다(같으면 하루 종일)
      */
-    public record Visitors(Map<Integer, int[]> people, int gapMin, int gapMax, int stayMin, int stayMax) {
-        public static final Visitors NONE = new Visitors(Map.of(), 0, 0, 0, 0);
+    public record Visitors(Map<Integer, int[]> people, int gapMin, int gapMax, int stayMin, int stayMax,
+                           int openHour, int closeHour) {
+        public static final Visitors NONE = new Visitors(Map.of(), 0, 0, 0, 0, 0, 0);
+
+        public Visitors(Map<Integer, int[]> people, int gapMin, int gapMax, int stayMin, int stayMax) {
+            this(people, gapMin, gapMax, stayMin, stayMax, 0, 0);
+        }
+
+        boolean allDay() {
+            return openHour == closeHour;
+        }
     }
+
+    /** 일부러 일으키는 상황(시연). HEAT: 온도 상승, STUFFY: 문 닫고 붐벼 CO2 상승 */
+    public enum Event { HEAT, STUFFY }
 
     static final double WANDER_KEEP = 0.95;   // 1초에 5%씩 0으로(약 20초 주기)
     static final double WANDER_STEP = Math.sqrt(1 - WANDER_KEEP * WANDER_KEEP);
@@ -48,7 +64,7 @@ public class RoomSimulator {
     static final double WANDER_HUM = 0.12;
     static final double OUTDOOR_CO2 = 520;   // 건물 안 빈 방 수준(실습실 새벽 550 안팎)
     static final double CO2_PER_PERSON = 3.0;     // ppm/분
-    static final double CO2_LEAK = 0.02;          // /분 (문틈·공조로 빠지는 속도. 4명이면 1000ppm 안팎에서 멈춤)
+    static final double CO2_LEAK = 0.035;         // /분 (문틈·공조로 빠지는 속도. 4명 약 860·5명 약 950ppm에서 멈춤)
     static final double CO2_VENT = 0.1;           // /분 (환풍기)
     static final double HEAT_PER_PERSON = 0.008;  // °C/분
     static final double TEMP_PULL = 0.03;         // /분 (건물 온도로 돌아가는 속도)
@@ -56,6 +72,11 @@ public class RoomSimulator {
     static final double HUM_PER_PERSON = 0.02;    // %/분
     static final double HUM_PULL = 0.03;          // /분
     static final double DRY_PULL = 0.06;          // /분 (제습이 40%로 끄는 속도)
+    static final double HEAT_EVENT = 0.12;        // °C/분 (상황: 햇빛·난방기)
+    static final double STUFFY_EVENT = 30;        // ppm/분 (상황: 문 닫고 붐빔. 20분 안에 1000ppm을 넘김)
+    static final double EVENT_MINUTES = 20;
+    /** 이만큼 사람을 가정한 방을 크기 1로 본다. 5번 방(7명 가정)은 1.75배 커서 같은 인원에 덜 오른다 */
+    static final double ROOM_UNIT = 4;
 
     private final ZoneId zone;
     private final Random random;
@@ -92,11 +113,12 @@ public class RoomSimulator {
             r.hum = 47.5 + random.nextGaussian();
             if (isVirtual(r.id)) {
                 // 시작할 때 절반쯤은 이미 쓰는 중으로(관제 화면이 처음부터 비어 보이지 않게)
-                if (random.nextBoolean()) {
+                if (minutesToClose(now) >= 30 && random.nextBoolean()) {
                     checkIn(r, now.minusSeconds(60L * random.nextInt(Math.max(1, visitors.stayMin()))));
                 } else {
                     r.occupied = false;
-                    r.nextAt = now.plusSeconds(60L * between(0, visitors.gapMax()));
+                    r.nextAt = minutesToClose(now) >= 30 ? now.plusSeconds(60L * between(0, visitors.gapMax()))
+                            : nextOpen(now).plusSeconds(60L * between(0, visitors.gapMax()));
                 }
             }
         }
@@ -125,11 +147,13 @@ public class RoomSimulator {
                 r.occupied = Boolean.TRUE.equals(occupied.get(r.id));
             }
             Devices d = devices.getOrDefault(r.id, Devices.NONE);
-            int n = !r.occupied ? 0 : r.people != null ? r.people : assumed.getOrDefault(r.id, 4);
+            int people = !r.occupied ? 0 : r.people != null ? r.people : assumed.getOrDefault(r.id, 4);
+            double n = people / size(r.id);
             double vent = CO2_LEAK + (d.ventilating() ? CO2_VENT : 0);
-            r.co2 += (n * CO2_PER_PERSON - vent * (r.co2 - OUTDOOR_CO2)) * dtMinutes;
+            double stuffy = r.eventLeft > 0 && Event.STUFFY.name().equals(r.event) ? STUFFY_EVENT : 0;
+            r.co2 += (n * CO2_PER_PERSON + stuffy - vent * (r.co2 - OUTDOOR_CO2)) * dtMinutes;
 
-            double heat = n * HEAT_PER_PERSON + (r.eventLeft > 0 && "HEAT".equals(r.event) ? 0.12 : 0);
+            double heat = n * HEAT_PER_PERSON + (r.eventLeft > 0 && Event.HEAT.name().equals(r.event) ? HEAT_EVENT : 0);
             double pull = TEMP_PULL * (ambient(r.id, now) - r.temp);
             if ((d.cooling() && d.targetC() != null && r.temp > d.targetC())
                     || (d.heating() && d.targetC() != null && r.temp < d.targetC())) {
@@ -173,7 +197,7 @@ public class RoomSimulator {
         return w * WANDER_KEEP + random.nextGaussian() * sd * WANDER_STEP;
     }
 
-    /** 가상 방: 때가 되면 들어오고 나간다 */
+    /** 가상 방: 때가 되면 들어오고 나간다. 문 닫는 시간에는 안 온다 */
     private void visit(Room r, Instant now) {
         if (r.nextAt == null || now.isBefore(r.nextAt)) {
             return;
@@ -181,7 +205,11 @@ public class RoomSimulator {
         if (r.occupied) {
             r.occupied = false;
             r.people = null;
+            r.event = null;
+            r.eventLeft = 0;
             r.nextAt = now.plusSeconds(60L * between(visitors.gapMin(), visitors.gapMax()));
+        } else if (minutesToClose(now) < 30) {
+            r.nextAt = nextOpen(now).plusSeconds(60L * between(0, visitors.gapMax()));
         } else {
             checkIn(r, now);
         }
@@ -192,22 +220,68 @@ public class RoomSimulator {
         r.occupied = true;
         r.people = between(p[0], p[1]);
         int stay = Math.round(between(visitors.stayMin(), visitors.stayMax()) / 10f) * 10;
-        r.nextAt = at.plusSeconds(60L * Math.max(10, stay));
+        r.nextAt = at.plusSeconds(60L * Math.max(10, (int) Math.min(stay, minutesToClose(at))));
+    }
+
+    /** 문 닫을 때까지 남은 분(문 닫은 동안은 0, 하루 종일 열면 아주 큼) */
+    private long minutesToClose(Instant at) {
+        if (visitors.allDay()) {
+            return Long.MAX_VALUE / 120;
+        }
+        var t = at.atZone(zone);
+        if (t.getHour() < visitors.openHour() || t.getHour() >= visitors.closeHour()) {
+            return 0;
+        }
+        return (visitors.closeHour() - t.getHour()) * 60L - t.getMinute();
+    }
+
+    /** 다음 문 여는 시각 */
+    private Instant nextOpen(Instant at) {
+        var t = at.atZone(zone).withMinute(0).withSecond(0).withNano(0);
+        var open = t.withHour(visitors.openHour());
+        if (!open.isAfter(at.atZone(zone))) {
+            open = open.plusDays(1);
+        }
+        return open.toInstant();
+    }
+
+    /** 방 크기(작은 방 = 1). 클수록 같은 인원에 공기 값이 덜 바뀐다 */
+    private double size(int roomId) {
+        return Math.max(1.0, assumed.getOrDefault(roomId, (int) ROOM_UNIT) / ROOM_UNIT);
     }
 
     private int between(int lo, int hi) {
         return hi <= lo ? lo : lo + random.nextInt(hi - lo + 1);
     }
 
-    /** 사람이 있는 방 하나에 온도 상승을 만든다(빈 방이면 오디가 기기를 안 켜서). 아무도 없으면 건너뛴다 */
+    /** 사람이 있는 방 하나에 상황(온도 또는 CO2 상승)을 만든다(빈 방이면 오디가 기기를 안 켜서). 아무도 없으면 건너뛴다 */
     private void startEvent() {
         List<Room> busy = rooms.values().stream().filter(r -> r.occupied && r.eventLeft <= 0).toList();
         if (busy.isEmpty()) {
             return;
         }
         Room r = busy.get(random.nextInt(busy.size()));
-        r.event = "HEAT";
-        r.eventLeft = 20;
+        r.event = (random.nextBoolean() ? Event.HEAT : Event.STUFFY).name();
+        r.eventLeft = EVENT_MINUTES;
+    }
+
+    /**
+     * 시연용: 이 방에 지금 상황을 일으킨다(재웅 11/13 "필요할 때 일부러"). 가상 방이 비어 있으면 손님을 먼저 들인다.
+     * 실제 방은 재실을 core가 정하니 사람이 없으면 값만 오르고 오디는 기기를 켜지 않는다. 없는 방이면 false
+     */
+    public synchronized boolean trigger(int roomId, Event kind, Instant now) {
+        Room r = rooms.get(roomId);
+        if (r == null) {
+            return false;
+        }
+        if (isVirtual(roomId) && !r.occupied) {
+            checkIn(r, now);
+            r.nextAt = Instant.ofEpochMilli(Math.max(r.nextAt.toEpochMilli(),
+                    now.plusSeconds(60L * (long) (EVENT_MINUTES + 30)).toEpochMilli()));
+        }
+        r.event = kind.name();
+        r.eventLeft = EVENT_MINUTES;
+        return true;
     }
 
     /** 방마다 조금 다른 건물 온도. 오후 5시쯤 가장 높고 새벽에 낮다(실습실 21.0~22.1°C) */
