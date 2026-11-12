@@ -30,6 +30,11 @@ public class DecisionBook {
         return open.get(key);
     }
 
+    /** 열렸든 닫혔든 id로 (판단 에이전트 결과가 늦게 올 때) */
+    public synchronized Decision byId(String id) {
+        return recent.stream().filter(d -> d.id().equals(id)).findFirst().orElse(null);
+    }
+
     public synchronized List<Decision> openIn(int roomId) {
         return open.values().stream().filter(d -> d.roomId() == roomId).toList();
     }
@@ -40,7 +45,11 @@ public class DecisionBook {
             if (d.open()) {
                 open.put(d.key(), d);
             } else {
-                open.remove(d.key());
+                // 같은 판단일 때만 열린 목록에서 뺀다(늦게 온 판단 결과가 같은 방·지표의 새 판단을 지우지 않게)
+                Decision cur = open.get(d.key());
+                if (cur != null && cur.id().equals(d.id())) {
+                    open.remove(d.key());
+                }
             }
             recent.removeIf(x -> x.id().equals(d.id()));
             recent.addFirst(d);
