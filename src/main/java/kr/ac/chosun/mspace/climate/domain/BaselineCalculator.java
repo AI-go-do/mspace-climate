@@ -45,7 +45,7 @@ public final class BaselineCalculator {
         double band = Math.max(k * s.std, rule.minBand());
         double upper = s.mean + band;
         if (rule.hardMax() != null) {
-            upper = Math.min(upper, rule.hardMax());
+            upper = rule.fixedUpper() ? rule.hardMax() : Math.min(upper, rule.hardMax());
         }
         Double lower = null;
         if (rule.hardMin() != null) {
