@@ -24,7 +24,7 @@ public class RoomSimulator {
         public static final Devices NONE = new Devices(false, false, false, null, false);
     }
 
-    /** 방 하나의 지금 값 */
+    /** 방 하나의 지금 값. people은 몰려온 사람(CROWD)까지 센 인원 */
     public record State(int roomId, double co2, double temperatureC, double humidityPct, boolean occupied, int people,
                         String event) {
     }
@@ -110,9 +110,10 @@ public class RoomSimulator {
     public synchronized List<State> read() {
         List<State> out = new ArrayList<>();
         for (Room r : rooms.values()) {
+            int crowd = r.eventLeft > 0 && "CROWD".equals(r.event) ? 4 : 0;
             out.add(new State(r.id, Math.max(OUTDOOR_CO2 - 20, r.co2 + random.nextGaussian() * 4),
                     r.temp + random.nextGaussian() * 0.03, clamp(r.hum + random.nextGaussian() * 0.2, 5, 95),
-                    r.people > 0 || (r.eventLeft > 0 && "CROWD".equals(r.event)), r.people, r.event));
+                    r.people + crowd > 0, r.people + crowd, r.event));
         }
         return out;
     }

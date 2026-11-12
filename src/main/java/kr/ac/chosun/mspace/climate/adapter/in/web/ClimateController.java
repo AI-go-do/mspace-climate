@@ -91,7 +91,7 @@ class ClimateController {
                     : intake.directRooms().contains(id) && !intake.replayRooms().contains(id) ? "REAL"
                     : intake.replayRooms().contains(id) ? "REPLAY"
                     : props.derive() != null && props.derive().derived(id) ? "DERIVED" : "REAL";
-            out.add(RoomView.of(a, facade.states(id), source));
+            out.add(RoomView.of(a, facade.states(id), source, intake.people(id)));
         }
         return Map.of("now", Times.kst(clock.instant()), "rooms", out);
     }
@@ -208,9 +208,10 @@ class ClimateController {
     /** source: REAL(실제 센서) / DERIVED(실습실 값으로 만든 값) / REPLAY(멈춘 센서 대신 실측 녹화 재생) / SIM(시뮬레이션) */
     record RoomView(int roomId, String roomName, String source, Boolean occupied, boolean auto, boolean offline,
                     String envAt, Map<Metric, MetricView> metrics, List<FindingView> findings,
-                    List<ApplianceView> appliances) {
+                    List<ApplianceView> appliances, String occupiedSince, Integer people) {
 
-        static RoomView of(RoomAnalysis a, List<ApplianceState> states, String source) {
+        /** people: 시뮬레이션 방만 인원(실제 방은 센서가 인원을 못 세서 null). occupiedSince: 지금 재실 상태가 시작된 시각 */
+        static RoomView of(RoomAnalysis a, List<ApplianceState> states, String source, Integer people) {
             Map<Metric, MetricView> m = new EnumMap<>(Metric.class);
             a.metrics().forEach((k, v) -> m.put(k, new MetricView(k.unit(),
                     v.latest() == null ? null : v.latest().value(),
@@ -220,7 +221,7 @@ class ClimateController {
                     status(v))));
             return new RoomView(a.roomId(), a.name(), source, a.occupied(), a.auto(), a.offline(), Times.kst(a.envAt()), m,
                     a.findings().stream().map(FindingView::of).toList(),
-                    states.stream().map(ApplianceView::of).toList());
+                    states.stream().map(ApplianceView::of).toList(), Times.kst(a.occupiedSince()), people);
         }
 
         /** 화면 색: OK / SOON(곧 넘음) / OVER(넘음) / SENSOR(센서 이상) / NONE(값 없음) */
