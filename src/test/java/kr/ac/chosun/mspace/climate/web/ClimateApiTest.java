@@ -42,6 +42,7 @@ class ClimateApiTest {
         r.add("management.server.port", () -> "0");
         r.add("climate.scheduler", () -> "false");
         r.add("climate.replay.enabled", () -> "false");
+        r.add("climate.sim.enabled", () -> "false");
         r.add("climate.data-dir", () -> "");
         r.add("climate.core-uri", () -> "http://127.0.0.1:" + CORE.getAddress().getPort());
     }

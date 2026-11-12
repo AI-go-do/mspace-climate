@@ -8,6 +8,7 @@ import java.util.ArrayList;
 import java.util.List;
 import kr.ac.chosun.mspace.climate.adapter.in.mqtt.MqttSensorClient;
 import kr.ac.chosun.mspace.climate.adapter.in.scheduler.ReplayFeeder;
+import kr.ac.chosun.mspace.climate.adapter.in.scheduler.SimFeeder;
 import kr.ac.chosun.mspace.climate.adapter.in.web.LiveFeed;
 import kr.ac.chosun.mspace.climate.adapter.in.web.LiveReading;
 import kr.ac.chosun.mspace.climate.adapter.out.CoreRoomStatus;
@@ -30,6 +31,7 @@ import kr.ac.chosun.mspace.climate.application.LabReplay;
 import kr.ac.chosun.mspace.climate.application.MqttProperties;
 import kr.ac.chosun.mspace.climate.application.ReadingIntake;
 import kr.ac.chosun.mspace.climate.application.RoomAnalyzer;
+import kr.ac.chosun.mspace.climate.application.RoomSimulator;
 import kr.ac.chosun.mspace.climate.application.SensorRegistry;
 import kr.ac.chosun.mspace.climate.domain.AnomalyDetector;
 import kr.ac.chosun.mspace.climate.domain.BaselineCalculator;
@@ -127,6 +129,19 @@ class ClimateConfig {
         }
     }
 
+    /** 방 공기 시뮬레이션 (FR-DEV-107). climate.sim.enabled=true일 때만 (화면에는 SIM으로 밝힘) */
+    @Bean
+    @ConditionalOnProperty(name = "climate.sim.enabled", havingValue = "true")
+    SimFeeder simFeeder(ReadingIntake intake, ClimateFacade facade, ClimateProperties p, Clock clock,
+                        @org.springframework.beans.factory.annotation.Value("${climate.sim.backfill-minutes:180}") int backfill,
+                        @org.springframework.beans.factory.annotation.Value("${climate.sim.event-every-minutes:25}") double eventEvery,
+                        @org.springframework.beans.factory.annotation.Value("${climate.sim.judge-every-seconds:10}") int judgeEvery) {
+        java.util.Map<Integer, Integer> cap = new java.util.LinkedHashMap<>();
+        p.rooms().keySet().stream().sorted().forEach(id -> cap.put(id, id == 5 ? 8 : 5));
+        RoomSimulator sim = new RoomSimulator(cap, eventEvery, SEOUL, System.nanoTime());
+        return new SimFeeder(sim, intake, facade, List.copyOf(cap.keySet()), backfill, judgeEvery, clock);
+    }
+
     @Bean
     SensorRegistry sensorRegistry(MqttProperties m) {
         return new SensorRegistry(m.autoRooms() == null ? List.of() : m.autoRooms(), m.spots());
@@ -150,13 +165,14 @@ class ClimateConfig {
         return new SnapshotFile(p.dataDir());
     }
 
-    /** 설정이 비면 방마다 가상 에어컨·공기청정기 (FR-DEV-106 시연) */
+    /** 설정이 비면 방마다 가상 에어컨·공기청정기·환풍기 (FR-DEV-106 시연) */
     static List<Appliance> appliances(ClimateProperties p, HttpClient http) {
         List<Appliance> list = new ArrayList<>();
         if (p.appliances() == null || p.appliances().isEmpty()) {
             for (int room : p.rooms().keySet()) {
                 list.add(new VirtualAppliance("ac-" + room, room, ApplianceKind.AIRCON));
                 list.add(new VirtualAppliance("purifier-" + room, room, ApplianceKind.PURIFIER));
+                list.add(new VirtualAppliance("fan-" + room, room, ApplianceKind.VENTILATOR));
             }
             return list;
         }
