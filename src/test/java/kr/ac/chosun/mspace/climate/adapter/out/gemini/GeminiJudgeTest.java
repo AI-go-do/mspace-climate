@@ -72,7 +72,7 @@ class GeminiJudgeTest {
     GeminiJudge judge(Instant now) {
         JudgeProperties p = new JudgeProperties(true, "test-key", "gemini-test",
                 "http://127.0.0.1:" + GEMINI.getAddress().getPort(), "http://127.0.0.1:" + port, 2, 3, 5,
-                Duration.ofSeconds(10));
+                Duration.ofSeconds(10), 0);
         return new GeminiJudge(p, json, new MutableClock(now));
     }
 
@@ -136,7 +136,7 @@ class GeminiJudgeTest {
     @DisplayName("하루 한도는 한 시간이 지나도 남는다")
     void dailyLimit() {
         MutableClock clock = new MutableClock(Instant.parse("2026-11-12T00:00:00Z"));
-        JudgeProperties p = new JudgeProperties(true, "k", null, null, null, 2, 3, 0, null);
+        JudgeProperties p = new JudgeProperties(true, "k", null, null, null, 2, 3, 0, null, 0);
         try (GeminiJudge judge = new GeminiJudge(p, json, clock)) {
             judge.take();
             judge.take();
@@ -150,10 +150,28 @@ class GeminiJudgeTest {
     }
 
     @Test
+    @DisplayName("제미나이 호출은 1분에 정해진 번수까지만, 1분이 지나면 다시 부른다")
+    void callsPerMinute() {
+        MutableClock clock = new MutableClock(Instant.parse("2026-11-12T00:00:00Z"));
+        JudgeProperties p = new JudgeProperties(true, "k", null, null, null, 100, 100, 0, null, 3);
+        try (GeminiJudge judge = new GeminiJudge(p, json, clock)) {
+            assertThat(judge.callSlot()).isNull();
+            assertThat(judge.callSlot()).isNull();
+            // 2번 쓴 뒤에는 새 판단(보통 2번 필요)을 시작하지 않는다
+            assertThat(judge.take()).isEqualTo("제미나이 분당 3번 한도");
+            assertThat(judge.callSlot()).isNull();
+            assertThat(judge.callSlot()).isEqualTo("제미나이 분당 3번 한도");
+            clock.advance(Duration.ofSeconds(61));
+            assertThat(judge.take()).isNull();
+            assertThat(judge.callSlot()).isNull();
+        }
+    }
+
+    @Test
     @DisplayName("키가 비면 판단 에이전트는 꺼져 있다(규칙만)")
     void noKeyDisabled() {
-        assertThat(new JudgeProperties(true, " ", null, null, null, 0, 0, 0, null).ready()).isFalse();
-        assertThat(new JudgeProperties(false, "k", null, null, null, 0, 0, 0, null).ready()).isFalse();
+        assertThat(new JudgeProperties(true, " ", null, null, null, 0, 0, 0, null, 0).ready()).isFalse();
+        assertThat(new JudgeProperties(false, "k", null, null, null, 0, 0, 0, null, 0).ready()).isFalse();
     }
 
     static class Recorder implements Judge.Listener {
