@@ -87,7 +87,8 @@ class ClimateController {
         List<RoomView> out = new ArrayList<>();
         for (int id : store.roomIds()) {
             RoomAnalysis a = analyzer.analyze(store.view(id));
-            String source = intake.directRooms().contains(id) && !intake.replayRooms().contains(id) ? "REAL"
+            String source = intake.simRooms().contains(id) ? "SIM"
+                    : intake.directRooms().contains(id) && !intake.replayRooms().contains(id) ? "REAL"
                     : intake.replayRooms().contains(id) ? "REPLAY"
                     : props.derive() != null && props.derive().derived(id) ? "DERIVED" : "REAL";
             out.add(RoomView.of(a, facade.states(id), source));
@@ -204,7 +205,7 @@ class ClimateController {
 
     // ---------- 응답 모양 ----------
 
-    /** source: REAL(실제 센서) / DERIVED(실습실 값으로 만든 시뮬레이션 값) / REPLAY(멈춘 센서 대신 실측 녹화 재생) */
+    /** source: REAL(실제 센서) / DERIVED(실습실 값으로 만든 값) / REPLAY(멈춘 센서 대신 실측 녹화 재생) / SIM(시뮬레이션) */
     record RoomView(int roomId, String roomName, String source, Boolean occupied, boolean auto, boolean offline,
                     String envAt, Map<Metric, MetricView> metrics, List<FindingView> findings,
                     List<ApplianceView> appliances) {

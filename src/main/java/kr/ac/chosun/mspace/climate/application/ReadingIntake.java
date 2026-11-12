@@ -11,14 +11,14 @@ import java.util.concurrent.ConcurrentHashMap;
  * 센서 값이 들어오는 하나의 입구. 게이트웨이 사본(mirrored)과 MQTT 직접 구독(direct)이 같은 길을 탄다.
  * 받으면 저장 → 열린 대시보드에 바로 보냄 → 그 방만 바로 판단. 실습실 값이면 센서 없는 방 값도 만든다.
  * MQTT로 직접 받는 방은 사본 공기 값을 버린다(같은 방에 두 출처가 섞이지 않게).
- * 실습실 센서가 멈췄을 때는 녹화 재생(replay)이 같은 길로 들어온다. 실제 값이 최근 LIVE_GRACE 안에 왔으면 재생 값은 버린다.
+ * 실습실 센서가 멈췄을 때는 녹화 재생(replay)이나 시뮬레이션(simulated)이 같은 길로 들어온다. 실제 값이 최근 LIVE_GRACE 안에 왔으면 재생 값은 버린다.
  */
 public class ReadingIntake {
 
     /** 실제 값이 이만큼 안 오면 녹화 재생으로 채운다 */
     public static final Duration LIVE_GRACE = Duration.ofMinutes(10);
 
-    /** 저장된 값 하나 (source: REAL/DERIVED/REPLAY) */
+    /** 저장된 값 하나 (source: REAL/DERIVED/REPLAY/SIM) */
     public interface Listener {
         void stored(SensorReading r, String source);
     }
@@ -30,6 +30,7 @@ public class ReadingIntake {
     private final Set<Integer> direct = ConcurrentHashMap.newKeySet();
     private final Map<Integer, Instant> lastLive = new ConcurrentHashMap<>();
     private final Set<Integer> replayed = ConcurrentHashMap.newKeySet();
+    private final Set<Integer> simulated = ConcurrentHashMap.newKeySet();
     private final Clock clock;
 
     public ReadingIntake(ClimateStore store, RoomDeriver deriver, ClimateAgent agent, Listener listener) {
@@ -47,7 +48,7 @@ public class ReadingIntake {
     /** 게이트웨이 사본 (core가 장치 토큰을 확인하고 받아 준 것) */
     public boolean mirrored(SensorReading r) {
         if ("CO2".equals(r.kind()) && (direct.contains(r.roomId()) || replayed.contains(r.roomId())
-                || deriver.derived(r.roomId()))) {
+                || simulated.contains(r.roomId()) || deriver.derived(r.roomId()))) {
             return false;
         }
         return take(r, "REAL", true);
@@ -58,6 +59,7 @@ public class ReadingIntake {
         direct.add(r.roomId());
         lastLive.put(r.roomId(), clock.instant());
         replayed.remove(r.roomId());
+        simulated.remove(r.roomId());
         return take(r, "REAL", true);
     }
 
@@ -71,6 +73,33 @@ public class ReadingIntake {
         }
         replayed.add(r.roomId());
         return take(r, "REPLAY", !quiet);
+    }
+
+    /**
+     * 시뮬레이션 값(1초마다). 이 방에 실제 값이 최근에 왔으면 버린다. 화면에는 매번 보내고,
+     * 판단(tick)은 judge=true일 때만(1초마다 판단하지 않게). quiet=true(시작할 때 지난 기록 채우기)면 저장만
+     */
+    public boolean simulated(SensorReading r, boolean judge, boolean quiet) {
+        if (liveRecently(r.roomId())) {
+            return false;
+        }
+        simulated.add(r.roomId());
+        replayed.remove(r.roomId());
+        if (!store.accept(r)) {
+            return false;
+        }
+        if (!quiet && "CO2".equals(r.kind())) {
+            listener.stored(r, "SIM");
+        }
+        if (!quiet && judge) {
+            agent.tickRoom(r.roomId());
+        }
+        return true;
+    }
+
+    /** 지금 시뮬레이션으로 채우는 방 */
+    public Set<Integer> simRooms() {
+        return Set.copyOf(simulated);
     }
 
     public Set<Integer> directRooms() {
@@ -97,7 +126,8 @@ public class ReadingIntake {
         }
         Instant at = r.observedAt() == null ? clock.instant() : r.observedAt();
         for (SensorReading d : deriver.derive(r, at)) {
-            if (!direct.contains(d.roomId()) && !replayed.contains(d.roomId()) && store.accept(d)) {
+            if (!direct.contains(d.roomId()) && !replayed.contains(d.roomId()) && !simulated.contains(d.roomId())
+                    && store.accept(d)) {
                 if (loud) {
                     listener.stored(d, "DERIVED");
                     agent.tickRoom(d.roomId());
