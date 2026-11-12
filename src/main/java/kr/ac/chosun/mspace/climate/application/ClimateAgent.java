@@ -42,6 +42,7 @@ import org.slf4j.LoggerFactory;
  *
  * <p>판단마다 판단 카드(Decision)를 남긴다: 탐지 → 예측 → 알림 → 제어 → 다시 확인. 값이 평소로 돌아오면 다시 확인이 끝나고,
  * alertEvery(30분) 안에 안 돌아오면 "그대로"로 닫고 다음 판단에서 새 카드를 연다.
+ * 이상이 settle(5분) 동안 계속 없어야 "돌아왔어요"로 닫는다. 경계 언저리에서 카드가 1~2분마다 열렸다 닫히지 않게.
  * 센서 값이 들어올 때마다(tickRoom) 그 방을 바로 본다. 1분 tick은 재실 변화·끊김을 잡는 안전망.
  */
 public class ClimateAgent {
@@ -55,6 +56,8 @@ public class ClimateAgent {
     private final ClimateProperties props;
     private final Clock clock;
     private final DecisionBook decisions;
+    /** 열린 카드의 이상이 처음 사라진 시각. settle 동안 계속 없어야 닫는다 */
+    private final Map<String, Instant> quietSince = new HashMap<>();
     private final boolean reachesStudents;
     /** 판단 에이전트(제미나이). 없거나 키가 없으면 규칙만으로 켠다 */
     private volatile Judge judge;
@@ -270,6 +273,7 @@ public class ClimateAgent {
             seen.putIfAbsent(Decision.key(a.roomId(), f.metric(), group(f.kind())), f);
         }
         for (var e : seen.entrySet()) {
+            quietSince.remove(e.getKey());
             Finding f = e.getValue();
             Decision d = decisions.find(e.getKey());
             List<Action> acts = f.actionable() && f.metric() != null
@@ -317,7 +321,12 @@ public class ClimateAgent {
         }
         for (Decision d : decisions.openIn(a.roomId())) {
             if (!seen.containsKey(d.key())) {
-                long min = Math.max(1, Duration.between(d.openedAt(), now).toMinutes());
+                Instant quiet = quietSince.computeIfAbsent(d.key(), k -> now);
+                if (Duration.between(quiet, now).compareTo(props.settleOrZero()) < 0) {
+                    continue; // 잠깐 사라진 것일 수 있다. settle 동안 계속 없어야 닫는다
+                }
+                quietSince.remove(d.key());
+                long min = Math.max(1, Duration.between(d.openedAt(), quiet).toMinutes());
                 String text = "SENSOR".equals(d.group()) || d.metric() == null
                         ? "센서가 다시 정상이에요 (%d분)".formatted(min)
                         : "%s 평소 범위로 돌아왔어요 (%d분 걸림)".formatted(label(d.metric()) + now(a, d.metric()), min);

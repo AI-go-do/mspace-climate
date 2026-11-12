@@ -27,13 +27,19 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * @param comfort       냉난방 목표 온도 범위
  * @param appliances    방마다 기기. 비면 방마다 가상 에어컨·공기청정기를 둔다
  * @param derive        실제 센서가 없는 방의 값을 실제 방 값에서 만드는 설정 (null이면 안 만듦)
+ * @param settle        이상이 이만큼 계속 사라져야 판단 카드를 "돌아왔어요"로 닫는다. 경계 언저리에서 1~2분마다
+ *                      카드가 열리고 닫히는 것을 막는다(dev 11/12 3번 방 온도). null이면 바로 닫음
  */
 @ConfigurationProperties("climate")
 public record ClimateProperties(Map<Integer, String> rooms, Duration keep, double k, int minSamples,
                                 Duration trendWindow, int minTrendPoints, Duration lead, Duration stuck,
                                 Duration offline, Duration emptyOff, Duration holdManual, Duration alertEvery,
                                 Map<Metric, MetricRule> rules, Comfort comfort, List<ApplianceConfig> appliances,
-                                String dataDir, RoomDeriver derive) {
+                                String dataDir, RoomDeriver derive, Duration settle) {
+
+    public Duration settleOrZero() {
+        return settle == null ? Duration.ZERO : settle;
+    }
 
     public record Comfort(int coolMin, int coolMax, int heatMin, int heatMax) {
     }

@@ -47,7 +47,7 @@ class ClimateAgentTest {
                 Map.of(Metric.CO2, new MetricRule(null, 1000.0, 150, 400, false, null),
                         Metric.TEMPERATURE, new MetricRule(18.0, 28.0, 1.5, 4, false, null),
                         Metric.HUMIDITY, new MetricRule(30.0, 70.0, 8, 20, false, null)),
-                new ClimateProperties.Comfort(24, 26, 20, 22), List.of(), null, null);
+                new ClimateProperties.Comfort(24, 26, 20, 22), List.of(), null, null, null);
         store = new ClimateStore(props, clock);
         facade = new ClimateFacade(List.of(new VirtualAppliance("ac-1", 1, ApplianceKind.AIRCON),
                 new VirtualAppliance("purifier-1", 1, ApplianceKind.PURIFIER)), props.holdManual(), 100, clock);
@@ -243,6 +243,40 @@ class ClimateAgentTest {
         assertThat(d.open()).isFalse();
         assertThat(d.step(Decision.Step.VERIFY).status()).isEqualTo(Decision.Status.DONE);
         assertThat(d.step(Decision.Step.VERIFY).text()).contains("평소 범위로 돌아왔어요");
+    }
+
+    @Test
+    @DisplayName("판단 카드: 이상이 잠깐 사라져도 settle(5분) 동안은 닫지 않는다 — 경계 언저리에서 카드가 1~2분마다 새로 열리지 않게")
+    void decisionCardSettles() {
+        // given: settle 5분인 오디
+        ClimateProperties p = new ClimateProperties(props.rooms(), props.keep(), props.k(), props.minSamples(),
+                props.trendWindow(), props.minTrendPoints(), props.lead(), props.stuck(), props.offline(), props.emptyOff(),
+                props.holdManual(), props.alertEvery(), props.rules(), props.comfort(), props.appliances(), null, null,
+                Duration.ofMinutes(5));
+        RoomAnalyzer analyzer = new RoomAnalyzer(p, new BaselineCalculator(ZoneId.of("Asia/Seoul"), 2.5, 30),
+                new TrendForecaster(Duration.ofMinutes(30), 5),
+                new AnomalyDetector(Duration.ofMinutes(15), Duration.ofMinutes(20)), clock);
+        agent = new ClimateAgent(store, analyzer, facade, alerts, p, clock, decisions, false);
+        store.setOccupancy(1, true, clock.instant());
+        feed(20, 24, 0, 680, 10);
+        agent.tick();
+
+        // when: 값이 평소로 돌아온 첫 판단
+        feed(25, 24, 0, 600, 0);
+        agent.tick();
+
+        // then: 아직 열려 있다
+        assertThat(co2Card().open()).isTrue();
+
+        // when: 5분 넘게 계속 평소
+        feed(6, 24, 0, 600, 0);
+        agent.tick();
+
+        // then: 카드 하나가 "돌아왔어요"로 닫힌다
+        assertThat(co2Card().open()).isFalse();
+        assertThat(co2Card().step(Decision.Step.VERIFY).text()).contains("평소 범위로 돌아왔어요");
+        assertThat(decisions.recent(50).stream().filter(d -> d.metric() == Metric.CO2 && "HIGH".equals(d.group())))
+                .hasSize(1);
     }
 
     @Test
