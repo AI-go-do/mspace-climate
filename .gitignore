@@ -1,0 +1,28 @@
+# 비밀값: 실제 값은 GitHub Actions Secrets와 서버 .env에만 둔다 (NFR-INF-001)
+.env
+.env.*
+!.env.example
+
+# Maven 빌드 결과물
+target/
+!.mvn/wrapper/maven-wrapper.jar
+
+# IDE·개인 설정
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.classpath
+.project
+.settings/
+# IntelliJ 빌드 폴더는 루트만 (adapter/out 패키지까지 무시하면 안 됨)
+/out/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 로그
+*.log
+logs/

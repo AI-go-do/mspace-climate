@@ -1,0 +1,149 @@
+# develop/main에 합쳐지면 climate 이미지를 만들어 GHCR(GitHub 이미지 저장소)에 올린다.
+# 그다음 server job이 학교 서버에서 climate 컨테이너를 새 이미지로 바꾼다 (DEPLOY_ENABLED일 때만).
+name: Deploy
+
+on:
+  push:
+    branches: [develop, main]
+  workflow_dispatch:          # Actions 탭에서 손으로도 돌릴 수 있게
+
+env:
+  # GHCR 이미지 이름은 소문자만 된다
+  IMAGE: ghcr.io/ai-go-do/mspace-climate
+
+# 외부 액션은 태그(v3 등) 대신 커밋 SHA로 고정한다. 태그는 바꿔치기될 수 있어서,
+# packages: write 권한을 가진 이 job에서 남의 코드가 바뀌어 실행되는 걸 막는다. 뒤 주석이 원래 버전
+jobs:
+  image:
+    name: image
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write         # GHCR에 이미지를 올릴 권한 (별도 토큰 필요 없음)
+    # 같은 브랜치 이미지 빌드가 겹치면 앞의 것은 취소하고 최신 것만.
+    # (워크플로 전체가 아니라 이 job에만 걸어서, 서버 교체 중인 server job은 취소되지 않게)
+    concurrency:
+      group: image-${{ github.ref }}
+      cancel-in-progress: true
+
+    steps:
+      - name: 코드 받기
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false   # 토큰을 .git 설정에 남기지 않는다 (뒤에 git push 같은 건 없음)
+
+      - name: GHCR 로그인
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}   # Actions가 자동으로 주는 토큰
+
+      - name: 태그 정하기
+        id: meta
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=ref,event=branch     # develop 또는 main
+            type=sha,prefix=sha-      # sha-ab12cd3 (되돌릴 때 이 태그로)
+
+      - name: QEMU 준비 (arm64 단계를 amd64 러너에서 돌리기 위해)
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
+        with:
+          # 이 이미지는 --privileged로 돈다. latest 대신 버전+digest로 고정해 바뀐 코드가 몰래 들어오지 않게
+          image: docker.io/tonistiigi/binfmt:qemu-v10.2.3@sha256:400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0
+
+      - name: Buildx 준비
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+      - name: 이미지 빌드 + 올리기
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: .
+          # 서버(amd64)와 팀원 맥(애플 실리콘, arm64) 둘 다 받을 수 있게
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha       # 지난 빌드 층을 재사용해서 빨라진다
+          cache-to: type=gha,mode=max
+
+  # 학교 서버에 배포: SSH로 들어가 새 이미지를 받고 해당 컨테이너만 다시 띄운다.
+  # 서버가 준비되기 전에는 건너뛴다. 준비되면 org(또는 레포) 설정에서
+  #   Variables: DEPLOY_ENABLED = true
+  #   Secrets:   DEPLOY_HOST, DEPLOY_PORT, DEPLOY_USER, DEPLOY_SSH_KEY(개인키), DEPLOY_KNOWN_HOSTS
+  # 를 넣으면 그때부터 동작한다. 서버에는 ~/infra (infra 레포 클론)와 .env.dev/.env.prod 가 있어야 한다.
+  server:
+    name: server
+    needs: image                       # 이미지가 GHCR에 올라간 다음에
+    # 서버 준비가 끝나 DEPLOY_ENABLED를 켰을 때만, develop·main에서만 (손으로 다른 브랜치를 돌려도 배포 안 함)
+    if: vars.DEPLOY_ENABLED == 'true' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    # develop → 개발(mspace-dev), main → 시연(mspace-prod). 둘이 동시에 돌아도 서로 안 섞인다
+    concurrency:
+      group: server-${{ github.ref }}
+      cancel-in-progress: false        # 배포 도중에 끊지 않는다
+    env:
+      TARGET: ${{ github.ref_name == 'main' && 'prod' || 'dev' }}
+    steps:
+      - name: SSH 키 준비
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_deploy && chmod 600 ~/.ssh/id_deploy
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts   # 처음 보는 서버면 접속을 거부한다 (가짜 서버 방지)
+
+      - name: 서버에서 새 이미지로 교체
+        env:
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          PORT: ${{ secrets.DEPLOY_PORT }}
+          SSH_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          ssh -i ~/.ssh/id_deploy -p "$PORT" -o BatchMode=yes "$SSH_USER@$HOST" bash -s -- "$TARGET" <<'REMOTE'
+          set -euo pipefail
+          T="$1"
+          # core·web·assistant 배포가 모두 같은 ~/infra를 쓴다. 레포가 달라 GitHub concurrency로는 못 막으니 서버에서 한 번에 하나만 돌게 잠근다
+          exec 9>"$HOME/.mspace-deploy.lock"
+          flock -w 300 9 || { echo "다른 배포가 5분 넘게 끝나지 않음(작업 제한 15분 안에 이 배포도 끝내야 함)"; exit 1; }
+          cd ~/infra
+          # 서버에서 손으로 고치거나 새로 만든 파일이 있으면 아래 되돌리기(reset --hard)가 지우거나 덮어쓸 수 있다. 그럴 땐 배포를 멈춘다
+          # (.env.*·backups/는 .gitignore에 있어 여기 안 잡히고, reset에도 안 지워진다)
+          STATUS=$(git status --porcelain) || { echo "git status 실패: 배포 중단"; exit 1; }
+          [ -z "$STATUS" ] || { echo "~/infra에 커밋 안 된 수정·새 파일이 있음: git status로 확인한 뒤 다시 배포"; git status --short; exit 1; }
+          # dev·prod 모두 ~/infra의 main 하나를 쓴다. 다른 브랜치면 아래 reset이 그 브랜치를 옮길 수 있어서 멈춘다
+          [ "$(git rev-parse --abbrev-ref HEAD)" = main ] || { echo "~/infra가 main 브랜치가 아님: git checkout main 뒤 다시 배포"; exit 1; }
+          # 되돌릴 자리는 'compose 설정 검사를 통과한 마지막 커밋'. 지난 배포가 검사 전에 끊겼으면 HEAD가 검사 안 된 커밋일 수 있어서
+          GOOD="$HOME/.mspace-infra-good"
+          # GOOD는 dev·prod가 같이 쓰므로, 있는 .env.* 전부로 compose 설정을 검사한다
+          check() { [ -f ".env.$T" ] || { echo ".env.$T 파일이 없음"; return 1; }; for E in dev prod; do [ -f ".env.$E" ] || continue; docker compose -p "mspace-$E" --env-file ".env.$E" config -q || return 1; done; }
+          C="docker compose -p mspace-$T --env-file .env.$T"
+          # 기록이 없으면(첫 배포) pull 전에 지금 설정을 검사해 그 커밋을 기록한다. 지금 설정부터 틀리면 pull 없이 멈춘다
+          if [ ! -s "$GOOD" ]; then
+            check || { echo "지금 ~/infra의 compose 설정부터 틀림: 손으로 고친 뒤 다시 배포"; exit 1; }
+            git rev-parse HEAD > "$GOOD"
+          fi
+          OLD=$(cat "$GOOD")
+          git merge-base --is-ancestor "$OLD" HEAD || { echo "기록된 검사 통과 커밋($OLD)이 main에 없음: $GOOD 를 지우고 다시 배포"; exit 1; }
+          git pull --ff-only                                   # compose 설정도 최신으로
+          # 이미지 받기 전에 compose 설정(.env 값 포함)을 먼저 검사한다. 틀리면 infra만 되돌리고 멈춘다(지금 서비스는 그대로)
+          check || { echo "compose 설정 오류: infra를 이전 커밋으로 되돌림(.env 같은 추적 안 하는 파일은 그대로)"; git reset -q --hard "$OLD"; exit 1; }
+          git rev-parse HEAD > "$GOOD"                         # 이 커밋은 검사 통과
+          # infra compose에 climate가 아직 없으면(infra PR 합치기 전) 이미지만 올리고 끝낸다
+          $C config --services | grep -qx climate || { echo "infra compose에 climate 서비스가 아직 없음: 이미지만 올림"; exit 0; }
+          $C pull climate
+          # climate는 기록 파일(볼륨) 하나를 쓰는 서비스라 두 개를 같이 띄우지 않고 바로 바꾼다(몇 초 판단이 멈출 뿐, 화면은 그대로)
+          $C up -d --no-deps climate                   # 다른 서비스(core·DB 등)는 건드리지 않는다
+          # climate는 밖으로 포트를 안 연다(게이트웨이 뒤). jre 이미지엔 curl·wget이 없어서 edge(nginx) 안에서 관리 포트(8096) health를 부른다
+          for i in $(seq 1 30); do                             # 최대 60초
+            $C exec -T edge wget -qO- -T 3 http://climate:8096/actuator/health 2>/dev/null | grep -q UP && { echo "배포 성공 ($T)"; exit 0; }
+            sleep 2
+          done
+          echo "health 확인 실패"; $C logs --tail=50 climate; exit 1
+          REMOTE

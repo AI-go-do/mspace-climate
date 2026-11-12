@@ -1,0 +1,68 @@
+# mspace-climate: 방 공기 이상 탐지·냉난방 자동 제어 (오디 공기 관리)
+# 게이트웨이 → /api/climate/** 만 여기로. 센서 값은 게이트웨이가 /internal/sensor-events로 사본을 준다
+server:
+  port: ${PORT:8095}
+
+spring:
+  application:
+    name: mspace-climate
+
+mspace:
+  jwt:
+    secret: ${JWT_SECRET:}          # core와 같은 값. 비면 켜지지 않는다
+    issuer: ${JWT_ISSUER:mspace-core}
+
+management:
+  server:
+    port: ${MANAGEMENT_PORT:8096}   # 자기 health는 다른 포트(밖으로 안 엶)
+  endpoints:
+    web:
+      exposure:
+        include: health
+
+climate:
+  core-uri: ${CORE_URI:http://core:8080}   # 관리자인지 core에 묻는다
+  data-dir: ${CLIMATE_DATA_DIR:/data}      # 기준선 7일 기록 스냅숏 (도커 볼륨)
+  tick: 60s                                # 오디 판단 간격
+  # 방 번호 → 이름. 시연은 실습실 센서를 1번 방으로 친다(docs Q-21)
+  rooms:
+    1: 1번 방
+    2: 2번 방
+    3: 3번 방
+    4: 4번 방
+    5: 5번 방
+  keep: 7d               # 기준선을 잡을 기록 기간
+  k: 2.5                 # 경계 = 평균 ± 2.5 × 흩어짐
+  min-samples: 30        # 30분 값이 모이기 전에는 안전 한계만 (학습 중)
+  trend-window: 30m      # 최근 30분 추세
+  min-trend-points: 5
+  lead: 15m              # 15분 안에 경계에 닿을 것 같으면 미리 알림·제어
+  stuck: 20m             # 20분 동안 값이 똑같으면 센서 멈춤 후보
+  offline: 10m           # 10분 넘게 값이 없으면 끊김
+  empty-off: 10m         # 빈 방 10분이면 기기 끔
+  hold-manual: 30m       # 사람이 손으로 바꾼 기기는 30분 동안 오디가 안 건드림
+  alert-every: 30m       # 같은 방·같은 알림은 30분에 한 번 (FR-DEV-104)
+  # 안전 한계: 방마다 기준선이 이 안에서 정해진다. CO2 1000ppm은 팀 규칙(FR-DEV-104)
+  rules:
+    CO2:         { hard-max: 1000, min-band: 150, spike-jump: 400 }
+    TEMPERATURE: { hard-min: 18, hard-max: 28, min-band: 1.5, spike-jump: 4 }
+    HUMIDITY:    { hard-min: 30, hard-max: 70, min-band: 8, spike-jump: 20 }
+  comfort:
+    cool-min: 24
+    cool-max: 26
+    heat-min: 20
+    heat-max: 22
+  # 기기 목록. 비면 방마다 가상 에어컨(ac-N)·공기청정기(purifier-N).
+  # 실제 기기 예 (어댑터만 바꾸면 됨):
+  #   - { id: ac-1, room: 1, kind: AIRCON, adapter: ir, brand: SAMSUNG, url: "http://<ESP32 노드>" }
+  #   - { id: purifier-1, room: 1, kind: PURIFIER, adapter: tasmota, brand: 샤오미, url: "http://<플러그>" }
+  appliances: []
+  # 실제 공기 센서는 실습실(1번 방) 하나. 2~5번 방은 1번 방 실제 값 + 방마다 작은 차이 + 느린 흔들림으로 만든다(시뮬레이션, 화면에 표시).
+  # 실제 센서를 다는 방은 여기서 빼면 그 방 센서 값을 그대로 쓴다
+  derive:
+    source-room: 1
+    rooms:
+      2: { temp: 0.6,  humidity: -3, co2: 40,  temp-wobble: 0.3, humidity-wobble: 1.5, co2-wobble: 25, period: 47 }
+      3: { temp: -0.5, humidity: 2,  co2: -30, temp-wobble: 0.2, humidity-wobble: 1.0, co2-wobble: 20, period: 61 }
+      4: { temp: 0.3,  humidity: 4,  co2: 20,  temp-wobble: 0.3, humidity-wobble: 2.0, co2-wobble: 30, period: 37 }
+      5: { temp: 0.9,  humidity: -2, co2: 80,  temp-wobble: 0.4, humidity-wobble: 1.5, co2-wobble: 40, period: 53 }
