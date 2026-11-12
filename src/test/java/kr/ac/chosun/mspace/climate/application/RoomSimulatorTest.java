@@ -180,4 +180,27 @@ class RoomSimulatorTest {
         assertThat(sim.isVirtual(2)).isTrue();
         assertThat(sim.isVirtual(1)).isFalse();
     }
+
+    @Test
+    @DisplayName("빈 방도 CO2가 1초마다 실제 센서처럼 오르내린다(1분 차이가 실측 2~16ppm 안쪽)")
+    void readingsWanderLikeSensor() {
+        // given: 방 값은 그대로 두고(step 없음) 센서 읽기만 1초마다 600번
+        RoomSimulator sim = new RoomSimulator(Map.of(1, 4), 1e9, SEOUL, 31);
+        sim.start(T0);
+        java.util.List<Double> v = new java.util.ArrayList<>();
+        for (int i = 0; i < 600; i++) {
+            v.add(sim.read().get(0).co2());
+        }
+        double lo = v.stream().mapToDouble(Double::doubleValue).min().orElseThrow();
+        double hi = v.stream().mapToDouble(Double::doubleValue).max().orElseThrow();
+        assertThat(hi - lo).as("10분 동안 오르내린 폭").isBetween(15.0, 80.0);
+        double sum = 0;
+        int n = 0;
+        for (int i = 60; i < v.size(); i += 60) {
+            double d = v.get(i) - v.get(i - 60);
+            sum += d * d;
+            n++;
+        }
+        assertThat(Math.sqrt(sum / n)).as("1분 차이").isBetween(4.0, 25.0);
+    }
 }
