@@ -11,6 +11,7 @@ import kr.ac.chosun.mspace.climate.adapter.in.scheduler.ReplayFeeder;
 import kr.ac.chosun.mspace.climate.adapter.in.scheduler.SimFeeder;
 import kr.ac.chosun.mspace.climate.adapter.in.web.LiveFeed;
 import kr.ac.chosun.mspace.climate.adapter.in.web.LiveReading;
+import kr.ac.chosun.mspace.climate.adapter.out.CoreAirAlertNotifier;
 import kr.ac.chosun.mspace.climate.adapter.out.CoreRoomStatus;
 import kr.ac.chosun.mspace.climate.adapter.out.LogNotifier;
 import kr.ac.chosun.mspace.climate.adapter.out.SnapshotFile;
@@ -84,10 +85,16 @@ class ClimateConfig {
         return new ClimateFacade(appliances(p, http), p.holdManual(), 500, clock);
     }
 
+    /**
+     * 방 사용자 알림. CLIMATE_SERVICE_TOKEN이 있으면 core에 부탁하고(core가 그 방 사람에게 보냄),
+     * 비면 지금처럼 관리자 화면에만 보인다
+     */
     @Bean
     @ConditionalOnMissingBean
-    Notifier notifier() {
-        return new LogNotifier();
+    Notifier notifier(HttpClient http,
+                      @org.springframework.beans.factory.annotation.Value("${climate.notify.core-url:http://core:8080}") String coreUrl,
+                      @org.springframework.beans.factory.annotation.Value("${climate.notify.token:}") String token) {
+        return token == null || token.isBlank() ? new LogNotifier() : new CoreAirAlertNotifier(coreUrl, token, http);
     }
 
     @Bean

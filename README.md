@@ -102,6 +102,7 @@ DB를 따로 두지 않아요. 센서 원본은 core DB(`sensor_event`)에 있�
 | `CLIMATE_SIM_ENABLED` | `true` | 방 공기 시뮬레이션(1초마다, 기기 반영). 실제 값이 오는 방은 실제 값 |
 | `CLIMATE_REPLAY_ENABLED` | `false` | 센서가 멈췄을 때 실측 녹화 재생(시뮬레이션 대신 쓸 때) |
 | `CLIMATE_MQTT_URI` | `tcp://data.withio.net:1883` | 브로커 |
+| `CLIMATE_SERVICE_TOKEN` · `CLIMATE_NOTIFY_CORE_URL` | (비움) · `http://core:8080` | 방 사용자 알림을 core에 부탁(`POST /internal/air-alerts`). core가 지금 그 방을 쓰는 사람에게 보내고 30분에 한 번만 거름. 비면 관리자 화면에만 |
 | `GEMINI_API_KEY` | (비움) | 켤 기기를 고르는 오디 AI(제미나이). 비면 규칙만(.env에만) |
 | `CLIMATE_JUDGE_ENABLED` · `CLIMATE_JUDGE_MODEL` | `true` · `gemini-3.5-flash-lite` | 판단 에이전트 끄기·모델 바꾸기 |
 | `CLIMATE_MQTT_CLIENT_ID` | `mspace-climate-<임의>` | 같은 이름이 둘이면 브로커가 서로 끊어요(dev·prod·보드 A 수집기) |
