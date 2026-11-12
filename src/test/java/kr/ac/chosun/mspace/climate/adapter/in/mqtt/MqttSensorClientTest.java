@@ -54,7 +54,7 @@ class MqttSensorClientTest {
                 Map.of(Metric.CO2, new MetricRule(null, 1000.0, 150, 400, false, null),
                         Metric.TEMPERATURE, new MetricRule(18.0, 28.0, 1.5, 4, false, null),
                         Metric.HUMIDITY, new MetricRule(30.0, 70.0, 8, 20, false, null)),
-                new ClimateProperties.Comfort(24, 26, 20, 22), List.of(), null, null);
+                new ClimateProperties.Comfort(24, 26, 20, 22), List.of(), null, null, null);
         store = new ClimateStore(props, clock);
         var facade = new ClimateFacade(List.of(), props.holdManual(), 100, clock);
         var analyzer = new RoomAnalyzer(props, new BaselineCalculator(java.time.ZoneId.of("Asia/Seoul"), 2.5, 30),
