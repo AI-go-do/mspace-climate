@@ -95,6 +95,10 @@ climate:
     event-every-minutes: 25
     judge-every-seconds: 10
   appliances: []
+  # 방 사용자 알림: core에 부탁(POST {core-url}/internal/air-alerts). 토큰이 비면 관리자 화면에만 보인다
+  notify:
+    core-url: ${CLIMATE_NOTIFY_CORE_URL:http://core:8080}   # 도커 안쪽 core (게이트웨이를 거치지 않음)
+    token: ${CLIMATE_SERVICE_TOKEN:}
   # 제미나이 판단 에이전트 (재웅 11/12). 키가 비면 규칙만으로 판단한다(지금과 같음).
   # 무료 등급은 비서와 같은 키라 분당 15·하루 500 → 여기서 시간당 4번·하루 40번까지만 묻고, 넘으면 규칙으로
   judge:
