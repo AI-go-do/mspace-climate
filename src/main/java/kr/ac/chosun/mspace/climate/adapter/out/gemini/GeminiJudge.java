@@ -56,6 +56,8 @@ public class GeminiJudge implements Judge, AutoCloseable {
     private final RestClient rest;
     private final ExecutorService worker;
     private final Deque<Instant> asked = new ArrayDeque<>();
+    /** 지난 1분 동안 제미나이를 부른 시각(판단 한 번에 여러 번) */
+    private final Deque<Instant> calls = new ArrayDeque<>();
 
     public GeminiJudge(JudgeProperties props, JsonMapper json, Clock clock) {
         this.props = props;
@@ -93,6 +95,10 @@ public class GeminiJudge implements Judge, AutoCloseable {
         while (!asked.isEmpty() && asked.peekFirst().isBefore(now.minus(Duration.ofDays(1)))) {
             asked.pollFirst();
         }
+        // 이번 판단이 보통 쓰는 2번이 1분 한도 안에 들어가야 시작한다
+        if (recentCalls(now) + 2 > props.maxCallsPerMinute()) {
+            return "제미나이 분당 %d번 한도".formatted(props.maxCallsPerMinute());
+        }
         long hour = asked.stream().filter(t -> t.isAfter(now.minus(Duration.ofHours(1)))).count();
         if (hour >= props.maxPerHour()) {
             return "제미나이 시간당 %d번 한도".formatted(props.maxPerHour());
@@ -102,6 +108,23 @@ public class GeminiJudge implements Judge, AutoCloseable {
         }
         asked.addLast(now);
         return null;
+    }
+
+    /** 제미나이 한 번 부르기 전에. 1분 한도 안이면 null, 넘었으면 이유(판단은 규칙에게 넘어간다) */
+    synchronized String callSlot() {
+        Instant now = clock.instant();
+        if (recentCalls(now) >= props.maxCallsPerMinute()) {
+            return "제미나이 분당 %d번 한도".formatted(props.maxCallsPerMinute());
+        }
+        calls.addLast(now);
+        return null;
+    }
+
+    private int recentCalls(Instant now) {
+        while (!calls.isEmpty() && !calls.peekFirst().isAfter(now.minus(Duration.ofMinutes(1)))) {
+            calls.pollFirst();
+        }
+        return calls.size();
     }
 
     private void run(Request r, Listener l) {
@@ -232,6 +255,10 @@ public class GeminiJudge implements Judge, AutoCloseable {
     /** 제미나이 한 번. 받은 content(생각 서명 포함)를 그대로 돌려줘 다음 요청에 그대로 붙인다 */
     @SuppressWarnings("unchecked")
     Map<String, Object> generate(List<Map<String, Object>> contents, List<Map<String, Object>> declarations) {
+        String over = callSlot();
+        if (over != null) {
+            throw new Failure(over);
+        }
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("systemInstruction", Map.of("parts", List.of(Map.of("text", SYSTEM))));
         body.put("contents", contents);
