@@ -28,6 +28,23 @@ class TrendAndAnomalyTest {
     }
 
     @Test
+    @DisplayName("오래 평평하다 막 오르기 시작한 방: 예측선은 지금 값보다 아래로 내려가지 않는다")
+    void forecastStartsFromNowWhenRiseJustBegan() {
+        // given: 25분 동안 520 그대로, 마지막 5분 520 → 600
+        List<Sample> h = new ArrayList<>();
+        for (int i = 30; i >= 0; i--) {
+            h.add(new Sample(NOW.minus(Duration.ofMinutes(i)), i > 5 ? 520 : 600 - 16 * i));
+        }
+
+        // when
+        Forecast f = forecaster.forecast(h, CO2_BASE, NOW);
+
+        // then: 오르는 추세면 5분 뒤 값도 지금(600)보다 높다
+        assertThat(f.slopePerMinute()).isPositive();
+        assertThat(f.points().get(0).value()).isGreaterThan(600.0);
+    }
+
+    @Test
     @DisplayName("1분에 10ppm씩 올라 880ppm이면 12분 뒤 1000ppm에 닿는다고 미리 알린다 (넘기 전에)")
     void risingSoonBeforeThreshold() {
         // given: 20분 동안 680 → 880

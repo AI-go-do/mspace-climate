@@ -49,14 +49,15 @@ public final class TrendForecaster implements Forecaster {
             return Forecast.none();
         }
         double slope = (n * sxy - sx * sy) / den;
-        double intercept = (sy - slope * sx) / n;   // 지금 시각의 추세값
+        // 예측선은 지금 값에서 시작한다. 직선의 지금 시각 값(절편)에서 그리면, 오래 평평하다 막 오르기 시작한 방은
+        // 절편이 지금 값보다 낮아 "오르는데 예측은 내려간다"처럼 보인다(관제 화면 11/12). 닿는 시간(eta)도 지금 값 기준이라 둘이 맞는다
+        double current = pts.get(pts.size() - 1).value();
         List<Sample> points = new ArrayList<>();
         for (int m = STEP_MINUTES; m <= HORIZON_MINUTES; m += STEP_MINUTES) {
-            points.add(new Sample(now.plus(Duration.ofMinutes(m)), BaselineCalculator.round(intercept + slope * m)));
+            points.add(new Sample(now.plus(Duration.ofMinutes(m)), BaselineCalculator.round(current + slope * m)));
         }
         Integer eta = null;
         Forecast.Boundary towards = null;
-        double current = pts.get(pts.size() - 1).value();
         if (slope > FLAT && baseline.upper() != null && current < baseline.upper()) {
             eta = (int) Math.ceil((baseline.upper() - current) / slope - 1e-6);
             towards = Forecast.Boundary.UPPER;
