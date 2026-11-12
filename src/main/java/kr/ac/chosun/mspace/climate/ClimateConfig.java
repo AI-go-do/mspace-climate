@@ -7,6 +7,7 @@ import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import kr.ac.chosun.mspace.climate.adapter.in.mqtt.MqttSensorClient;
+import kr.ac.chosun.mspace.climate.adapter.in.scheduler.ReplayFeeder;
 import kr.ac.chosun.mspace.climate.adapter.in.web.LiveFeed;
 import kr.ac.chosun.mspace.climate.adapter.in.web.LiveReading;
 import kr.ac.chosun.mspace.climate.adapter.out.CoreRoomStatus;
@@ -25,6 +26,7 @@ import kr.ac.chosun.mspace.climate.application.ClimateStore;
 import kr.ac.chosun.mspace.climate.application.DecisionBook;
 import kr.ac.chosun.mspace.climate.application.Notifier;
 import kr.ac.chosun.mspace.climate.application.BoardModel;
+import kr.ac.chosun.mspace.climate.application.LabReplay;
 import kr.ac.chosun.mspace.climate.application.MqttProperties;
 import kr.ac.chosun.mspace.climate.application.ReadingIntake;
 import kr.ac.chosun.mspace.climate.application.RoomAnalyzer;
@@ -105,12 +107,24 @@ class ClimateConfig {
     }
 
     @Bean
-    ReadingIntake readingIntake(ClimateStore store, ClimateProperties p, ClimateAgent agent, LiveFeed live) {
+    ReadingIntake readingIntake(ClimateStore store, ClimateProperties p, ClimateAgent agent, LiveFeed live, Clock clock) {
         return new ReadingIntake(store, p.derive(), agent, (r, source) -> {
             if ("CO2".equals(r.kind())) {
                 live.publish("reading", LiveReading.of(r, source));
             }
-        });
+        }, clock);
+    }
+
+    /** 실습실 센서가 멈췄을 때 실측 녹화 재생. climate.replay.enabled=true일 때만 (화면에는 REPLAY로 밝힘) */
+    @Bean
+    @ConditionalOnProperty(name = "climate.replay.enabled", havingValue = "true")
+    ReplayFeeder replayFeeder(ReadingIntake intake, MqttProperties m, Clock clock,
+                              @org.springframework.beans.factory.annotation.Value("${climate.replay.resource:replay/lab-1min.csv.gz}") String resource,
+                              @org.springframework.beans.factory.annotation.Value("${climate.replay.backfill-minutes:120}") int backfill)
+            throws java.io.IOException {
+        try (var in = new org.springframework.core.io.ClassPathResource(resource).getInputStream()) {
+            return new ReplayFeeder(LabReplay.load(in), intake, m.spots(), backfill, clock);
+        }
     }
 
     @Bean

@@ -73,6 +73,10 @@ climate:
   # 실제 기기 예 (어댑터만 바꾸면 됨):
   #   - { id: ac-1, room: 1, kind: AIRCON, adapter: ir, brand: SAMSUNG, url: "http://<ESP32 노드>" }
   #   - { id: purifier-1, room: 1, kind: PURIFIER, adapter: tasmota, brand: 샤오미, url: "http://<플러그>" }
+  # 실습실 센서가 멈췄을 때(11/8부터 LoRa 업링크 0건) 실측 녹화(10/21~11/8)를 N주 전 같은 시각으로 재생. 실제 값이 오면 그 방은 실제 값
+  replay:
+    enabled: ${CLIMATE_REPLAY_ENABLED:true}
+    backfill-minutes: 120
   appliances: []
   # 실제 공기 센서는 실습실(1번 방) 하나. 2~5번 방은 1번 방 실제 값 + 방마다 작은 차이 + 느린 흔들림으로 만든다(시뮬레이션, 화면에 표시).
   # 실제 센서를 다는 방은 여기서 빼면 그 방 센서 값을 그대로 쓴다

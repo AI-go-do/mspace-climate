@@ -16,6 +16,7 @@ climate: 1분마다  재실 읽기(core /api/rooms/status) → 기준선·예측
 ```
 
 - **MQTT 직접 구독**(계정이 있으면 켜짐): 실습실 센서 자리(`spot`)를 설정 `climate.mqtt.spots`대로 방에 붙여요. 실습실 CO2 센서는 4개뿐이라(나머지는 온습도만) 1~2분 간격 3개를 1~3번 방에 붙이고, 4·5번 방은 1번 방 값으로 만들어요(`GET /api/climate/sensors`로 확인). 이렇게 받는 방은 만든 값·게이트웨이 사본 공기 값을 쓰지 않아요(재실 이벤트는 받음)
+- **녹화 재생**(센서가 멈췄을 때): 실습실 LoRa 센서가 11/8 11:34부터 아무것도 안 보내요(브로커·InfluxDB 둘 다 그 뒤 0건, 11/12 확인). 그동안은 실습실에서 실제로 잰 1분 기록(10/21~11/8, `replay/lab-1min.csv.gz`)을 **N주 전 같은 요일·같은 시각** 값으로 1분마다 넣어요. 응답·실시간 값에 `source: REPLAY`로 밝혀요. 켜질 때 지난 2시간을 채워 그래프가 비지 않게 해요. 어떤 방에 실제 값이 오면 그 뒤 10분 동안 그 방 재생 값은 버려요(센서가 살아나면 저절로 실제 값). 판단·예측은 들어온 값으로 지금 새로 계산해요(녹화된 판단이 아님). 끄려면 `CLIMATE_REPLAY_ENABLED=false`
 - MQTT가 꺼져 있으면 실제 공기 센서는 실습실 하나라 **1번 방만 실제 값**이에요. 2~5번 방은 1번 방 실제 값 + 방마다 작은 차이 + 느린 흔들림으로 만들어요(`climate.derive`, 응답에 `source: DERIVED`). 실제 센서를 다는 방은 설정에서 빼면 그 방 값을 그대로 써요
 - 재실은 2~5번 방도 진짜예요(core 방 현황: 센서 재실, 모르면 예약 사용 중)
 
@@ -82,6 +83,7 @@ DB를 따로 두지 않아요. 센서 원본은 core DB(`sensor_event`)에 있�
 | `CLIMATE_DATA_DIR` | `/data` | 스냅숏 폴더 |
 | `PORT` · `MANAGEMENT_PORT` | `8095` · `8096` | 밖으로 열지 않음 |
 | `CLIMATE_MQTT_USERNAME` · `CLIMATE_MQTT_PASSWORD` | (비움) | 교육장 브로커 계정. 비면 직접 구독을 안 해요(.env에만, 저장소에 안 넣음) |
+| `CLIMATE_REPLAY_ENABLED` | `true` | 센서가 멈췄을 때 실측 녹화 재생(실제 값이 오는 방은 실제 값) |
 | `CLIMATE_MQTT_URI` | `tcp://data.withio.net:1883` | 브로커 |
 | `CLIMATE_MQTT_CLIENT_ID` | `mspace-climate-<임의>` | 같은 이름이 둘이면 브로커가 서로 끊어요(dev·prod·보드 A 수집기) |
 
