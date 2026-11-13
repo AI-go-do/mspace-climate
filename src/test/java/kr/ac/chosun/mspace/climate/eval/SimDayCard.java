@@ -72,7 +72,7 @@ public final class SimDayCard {
             rooms.put(i, i + "번 방");
         }
         ClimateProperties props = new ClimateProperties(rooms, Duration.ofDays(7), 2.5, 30, Duration.ofMinutes(30), 5,
-                Duration.ofMinutes(15), Duration.ofMinutes(20), Duration.ofMinutes(10), Duration.ofMinutes(10),
+                Duration.ofMinutes(10), Duration.ofMinutes(20), Duration.ofMinutes(10), Duration.ofMinutes(10),
                 Duration.ofMinutes(30), Duration.ofMinutes(30),
                 Map.of(Metric.CO2, new MetricRule(null, 1000.0, 150, 400, true, null),
                         Metric.TEMPERATURE, new MetricRule(18.0, 28.0, 1.5, 4, false, false),
@@ -88,9 +88,11 @@ public final class SimDayCard {
         ClimateFacade facade = new ClimateFacade(List.copyOf(devices), props.holdManual(), 500, clock);
         List<Alert> sent = new ArrayList<>();
         AlertLog alerts = new AlertLog(props.alertEvery(), 500, sent::add, clock);
-        RoomAnalyzer analyzer = new RoomAnalyzer(props, new BaselineCalculator(SEOUL, 2.5, 30),
-                new TrendForecaster(Duration.ofMinutes(30), 5),
-                new AnomalyDetector(Duration.ofMinutes(15), Duration.ofMinutes(20)), clock);
+        // dev와 같게: GRU 예측(못 하면 직선) + 10분 전 알림 (README 예측 모델 비교 3판)
+        TrendForecaster trend = new TrendForecaster(Duration.ofMinutes(30), 5);
+        var gru = kr.ac.chosun.mspace.climate.adapter.out.model.GruForecaster.load(SimDayCard.class.getClassLoader(), trend, SEOUL);
+        RoomAnalyzer analyzer = new RoomAnalyzer(props, new BaselineCalculator(SEOUL, 2.5, 30), gru == null ? trend : gru,
+                new AnomalyDetector(Duration.ofMinutes(10), Duration.ofMinutes(20)), clock);
         DecisionBook book = new DecisionBook(500);
         Set<String> seen = new HashSet<>();
         Map<String, Integer> byKind = new TreeMap<>();

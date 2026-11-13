@@ -17,7 +17,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * @param minSamples    기준선을 믿을 최소 1분 값 개수
  * @param trendWindow   추세를 잴 최근 기간 (30분)
  * @param minTrendPoints 추세를 잴 최소 값 개수
- * @param lead          이 안에 경계에 닿을 것 같으면 미리 알림·제어 (15분)
+ * @param lead          이 안에 경계에 닿을 것 같으면 미리 알림·제어 (10분)
  * @param stuck         값이 이만큼 그대로면 센서 멈춤 후보
  * @param offline       값이 이만큼 안 오면 끊김
  * @param emptyOff      빈 방이 이만큼 이어지면 기기를 끈다

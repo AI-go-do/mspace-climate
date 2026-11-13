@@ -69,9 +69,19 @@ class ClimateConfig {
         return new ClimateStore(p, clock);
     }
 
+    /**
+     * 예측: 실습 시계열 모델(GRU)이 먼저, 못 하면(습도·값 부족·모델 없음) 최근 30분 직선(재웅 11/13).
+     * climate.model.enabled=false면 직선만
+     */
     @Bean
-    Forecaster forecaster(ClimateProperties p) {
-        return new TrendForecaster(p.trendWindow(), p.minTrendPoints());
+    Forecaster forecaster(ClimateProperties p,
+                          @org.springframework.beans.factory.annotation.Value("${climate.model.enabled:true}") boolean model) {
+        Forecaster trend = new TrendForecaster(p.trendWindow(), p.minTrendPoints());
+        if (!model) {
+            return trend;
+        }
+        Forecaster gru = kr.ac.chosun.mspace.climate.adapter.out.model.GruForecaster.load(getClass().getClassLoader(), trend, SEOUL);
+        return gru == null ? trend : gru;
     }
 
     @Bean
