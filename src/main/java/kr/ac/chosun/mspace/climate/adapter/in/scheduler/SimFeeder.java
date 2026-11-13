@@ -39,6 +39,19 @@ public class SimFeeder {
     private final Clock clock;
     private final Map<Integer, Boolean> lastOccupied = new HashMap<>();
     private Instant last;
+    private Outbound outbound;
+
+    /**
+     * 시뮬레이션 값을 바깥(core)에도 알릴 때 (지영 11/13). 켜기 앞 채우기(backfill)는 알리지 않는다.
+     * accepted: climate가 이 CO2 값을 썼는지(실제 값이 오는 방이면 false), virtual: 시뮬레이션이 손님을 만드는 방인지
+     */
+    public interface Outbound {
+        void simulated(RoomSimulator.State s, Instant at, boolean accepted, boolean virtual);
+    }
+
+    public void setOutbound(Outbound outbound) {
+        this.outbound = outbound;
+    }
 
     public SimFeeder(RoomSimulator sim, ReadingIntake intake, ClimateStore store, ClimateFacade facade,
                      List<Integer> rooms, int backfillMinutes, int judgeEvery, Clock clock) {
@@ -96,9 +109,17 @@ public class SimFeeder {
                 intake.simulated(new SensorReading("sim-occ-" + s.roomId() + "-" + sec, s.roomId(), "OCCUPANCY",
                         s.occupied(), null, null, null, at), false, true);
             }
-            n += intake.simulated(new SensorReading("sim-" + s.roomId() + "-" + sec, s.roomId(), "CO2", null,
+            boolean accepted = intake.simulated(new SensorReading("sim-" + s.roomId() + "-" + sec, s.roomId(), "CO2", null,
                     (int) Math.round(s.co2()), round(s.temperatureC(), 2), round(s.humidityPct(), 1), at),
-                    judge || changed, quiet) ? 1 : 0;
+                    judge || changed, quiet);
+            n += accepted ? 1 : 0;
+            if (!quiet && outbound != null) {
+                try {
+                    outbound.simulated(s, at, accepted, sim.isVirtual(s.roomId()));
+                } catch (RuntimeException e) {
+                    log.warn("시뮬레이션 값 바깥 알리기 실패 방={} ({})", s.roomId(), e.getClass().getSimpleName());
+                }
+            }
             if (sim.isVirtual(s.roomId())) {
                 intake.simVisit(s.roomId(), s.people(), s.until());
             }
