@@ -39,6 +39,8 @@ import tools.jackson.databind.json.JsonMapper;
  */
 public class GruForecaster implements Forecaster {
 
+    /** 실측 비교 7판에서 고른 값 (README "예측 모델 비교") */
+    public static final int DEFAULT_ANCHOR_MINUTES = 3;
     private static final Logger log = LoggerFactory.getLogger(GruForecaster.class);
     static final int STEP_MINUTES = 5;
     static final int MAX_INTERP_SLOTS = 3;          // 15분 이하만 보간 (실습 preprocess max_interp_minutes)
@@ -49,6 +51,8 @@ public class GruForecaster implements Forecaster {
     private final OrtEnvironment env;
     private final OrtSession session;
     private final int lookback;
+    /** 예측선 출발점을 낼 최근 몇 분 평균 (0이면 마지막 5분 칸 평균) */
+    private final int anchorMinutes;
     private final int horizon;
     private final int spaces;
     private final double[] mean = new double[3];
@@ -56,7 +60,9 @@ public class GruForecaster implements Forecaster {
     private final Forecaster fallback;
     private final ZoneId zone;
 
-    GruForecaster(byte[] onnx, JsonNode meta, JsonNode normalization, Forecaster fallback, ZoneId zone) throws OrtException {
+    GruForecaster(byte[] onnx, JsonNode meta, JsonNode normalization, Forecaster fallback, ZoneId zone, int anchorMinutes)
+            throws OrtException {
+        this.anchorMinutes = anchorMinutes;
         String variant = meta.path("variant").asString();
         if (!"no_schedule".equals(variant) || !"delta".equals(meta.path("target").asString())
                 || meta.path("n_past").asInt() != 10 || meta.path("n_future").asInt() != 4) {
@@ -82,6 +88,10 @@ public class GruForecaster implements Forecaster {
 
     /** 클래스패스 model/에서 읽는다. 없거나 못 읽으면 null (추세만 쓴다) */
     public static GruForecaster load(ClassLoader cl, Forecaster fallback, ZoneId zone) {
+        return load(cl, fallback, zone, DEFAULT_ANCHOR_MINUTES);
+    }
+
+    public static GruForecaster load(ClassLoader cl, Forecaster fallback, ZoneId zone, int anchorMinutes) {
         try (InputStream onnx = cl.getResourceAsStream("model/forecast.onnx");
              InputStream meta = cl.getResourceAsStream("model/forecast.json");
              InputStream norm = cl.getResourceAsStream("model/normalization.json")) {
@@ -90,7 +100,8 @@ public class GruForecaster implements Forecaster {
                 return null;
             }
             JsonMapper json = JsonMapper.builder().build();
-            GruForecaster f = new GruForecaster(onnx.readAllBytes(), json.readTree(meta), json.readTree(norm), fallback, zone);
+            GruForecaster f = new GruForecaster(onnx.readAllBytes(), json.readTree(meta), json.readTree(norm), fallback, zone,
+                    anchorMinutes);
             log.info("예측 모델(GRU) 켬: 과거 {}칸, 5~60분", f.lookback);
             return f;
         } catch (IOException | OrtException | RuntimeException e) {
@@ -116,11 +127,40 @@ public class GruForecaster implements Forecaster {
             if (change == null) {
                 return fallback.forecast(metric, history, baseline, now);
             }
-            return toForecast(change, own.get(own.size() - 1).value(), lastLabel(now), baseline, now);
+            return toForecast(change, anchor(own, now), lastLabel(now), baseline, now);
         } catch (OrtException | RuntimeException e) {
             log.warn("예측 모델 계산 실패, 추세로: {}", e.getClass().getSimpleName());
             return fallback.forecast(metric, history, baseline, now);
         }
+    }
+
+    /**
+     * 예측선의 출발점. 1분 값 하나가 센서 오차로 튀면(예: 946 → 977) 예측선 전체가 같이 뛰어 헛알림이 났다.
+     * 최근 anchorMinutes분 평균에서 출발한다(실측 비교 7판: 3분이 가장 나음). 0이면 끝난 마지막 5분 칸 평균(6판, 늦어서 탈락)
+     */
+    double anchor(List<Sample> own, Instant now) {
+        Instant from;
+        Instant to;
+        if (anchorMinutes > 0) {
+            from = now.minus(Duration.ofMinutes(anchorMinutes));
+            to = Instant.MAX;
+        } else {
+            to = lastLabel(now);
+            from = to.minus(Duration.ofMinutes(STEP_MINUTES));
+        }
+        double sum = 0;
+        int n = 0;
+        for (int i = own.size() - 1; i >= 0; i--) {
+            Sample s = own.get(i);
+            if (anchorMinutes > 0 ? !s.at().isAfter(from) : s.at().isBefore(from)) {
+                break;
+            }
+            if (s.at().isBefore(to)) {
+                sum += s.value();
+                n++;
+            }
+        }
+        return n == 0 ? own.get(own.size() - 1).value() : sum / n;
     }
 
     /** 끝난 마지막 5분 칸의 끝 시각 */
