@@ -223,7 +223,7 @@ class ClimateController {
                     v.latest() == null ? null : Times.kst(v.latest().at()), v.baseline(),
                     v.forecast().slopePerMinute(), v.forecast().etaMinutes(),
                     v.forecast().towards() == null ? null : v.forecast().towards().name(),
-                    status(v))));
+                    status(v), v.forecast().points().isEmpty() ? null : v.forecast().method())));
             return new RoomView(a.roomId(), a.name(), source, a.occupied(), a.auto(), a.offline(), Times.kst(a.envAt()), m,
                     a.findings().stream().map(FindingView::of).toList(),
                     states.stream().map(ApplianceView::of).toList(), Times.kst(a.occupiedSince()), visit != null,
@@ -248,8 +248,9 @@ class ClimateController {
         }
     }
 
+    /** forecastBy: 이 예측을 누가 했나. GRU(실습 시계열 모델) / TREND(최근 30분 직선, 모델이 못 할 때) */
     record MetricView(String unit, Double value, String at, Baseline baseline, double trendPerMinute,
-                      Integer etaMinutes, String towards, String status) {
+                      Integer etaMinutes, String towards, String status, String forecastBy) {
     }
 
     record FindingView(String kind, String metric, String message, Integer etaMinutes) {

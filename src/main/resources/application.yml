@@ -46,7 +46,11 @@ climate:
   min-samples: 30        # 30분 값이 모이기 전에는 안전 한계만 (학습 중)
   trend-window: 30m      # 최근 30분 추세
   min-trend-points: 5
-  lead: 15m              # 15분 안에 경계에 닿을 것 같으면 미리 알림·제어
+  lead: 10m              # 10분 안에 경계에 닿을 것 같으면 미리 알림·제어. GRU 예측과 함께 15→10분이 실측에서 가장 나음(README 예측 모델 비교)
+  # 예측: 실습 시계열 모델(GRU, src/main/resources/model)이 CO2·온도를, 습도와 값이 모자랄 때는 최근 30분 직선이(재웅 11/13).
+  # 직선만 쓰려면 CLIMATE_MODEL_ENABLED=false. 두 방식 비교는 README "예측 모델 비교"
+  model:
+    enabled: ${CLIMATE_MODEL_ENABLED:true}
   stuck: 20m             # 20분 동안 값이 똑같으면 센서 멈춤 후보
   offline: 10m           # 10분 넘게 값이 없으면 끊김
   empty-off: 10m         # 빈 방 10분이면 기기 끔

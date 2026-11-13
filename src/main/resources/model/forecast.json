@@ -1,0 +1,43 @@
+{
+  "run_id": "gru-no_schedule-L120-s3",
+  "kind": "gru",
+  "variant": "no_schedule",
+  "seed": 3,
+  "target": "delta",
+  "lookback_minutes": 120,
+  "lookback_steps": 24,
+  "n_past": 10,
+  "n_future": 4,
+  "n_spaces": 4,
+  "spaces": [
+    "실습실",
+    "사무실",
+    "회의실",
+    "사무실 밖"
+  ],
+  "hidden": 64,
+  "layers": 2,
+  "dropout": 0.1,
+  "feature_names": [
+    "co2_z",
+    "temperature_z",
+    "humidity_z",
+    "co2_ok",
+    "temperature_ok",
+    "humidity_ok"
+  ],
+  "parameters": 57624,
+  "best_epoch": 15,
+  "epochs_run": 20,
+  "batch_size": 512,
+  "learning_rate": 0.001,
+  "device": "mps",
+  "machine": "Darwin arm64",
+  "python": "3.12.15",
+  "torch": "2.14.1",
+  "code_commit": "976b74e",
+  "train_samples": 304227,
+  "val_samples": 28118,
+  "minutes": 4.6,
+  "finished_at": "2026-10-22T01:02:37Z"
+}

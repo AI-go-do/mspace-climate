@@ -72,6 +72,12 @@
             <artifactId>mcp</artifactId>
             <version>${mcp-sdk.version}</version>
         </dependency>
+        <!-- 실습 시계열 모델(GRU, ONNX)을 CPU로 돌린다(재웅 11/13 "가져와서 써 보자"). 실습 서비스도 같은 ONNX Runtime -->
+        <dependency>
+            <groupId>com.microsoft.onnxruntime</groupId>
+            <artifactId>onnxruntime</artifactId>
+            <version>1.27.0</version>
+        </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-webmvc-test</artifactId>

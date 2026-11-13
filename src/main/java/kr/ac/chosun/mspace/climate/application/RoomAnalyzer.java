@@ -45,7 +45,7 @@ public class RoomAnalyzer {
             List<Finding> found = List.of();
             Forecast f = Forecast.none();
             if (!offline && latest != null) {
-                f = clamped(forecaster.forecast(h, b, now), m);
+                f = clamped(forecaster.forecast(m, room.history(), b, now), m);
                 found = detector.detect(m, h, b, f, props.rules().get(m), now);
             }
             metrics.put(m, new RoomAnalysis.MetricAnalysis(latest, b, f, found));
@@ -65,6 +65,7 @@ public class RoomAnalyzer {
             return f;
         }
         return new Forecast(f.slopePerMinute(), f.etaMinutes(), f.towards(),
-                f.points().stream().map(p -> new kr.ac.chosun.mspace.climate.domain.Sample(p.at(), m.clamp(p.value()))).toList());
+                f.points().stream().map(p -> new kr.ac.chosun.mspace.climate.domain.Sample(p.at(), m.clamp(p.value()))).toList(),
+                f.method());
     }
 }

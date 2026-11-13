@@ -9,7 +9,7 @@ import java.util.List;
  * 이상 탐지. 경계에 닿은 뒤가 아니라 닿기 전에(lead 안에) 알리는 것이 핵심이다 (재웅 11/12).
  * <ul>
  *   <li>OVER·UNDER: 이미 경계 밖</li>
- *   <li>RISING_SOON·FALLING_SOON: 지금 추세면 lead분(기본 15분) 안에 경계에 닿음</li>
+ *   <li>RISING_SOON·FALLING_SOON: 지금 추세면 lead분(기본 10분) 안에 경계에 닿음</li>
  *   <li>SPIKE: 1분 사이 크게 뜀 (센서 이상 후보)</li>
  *   <li>STUCK: stuck분(기본 20분) 동안 값이 하나도 안 바뀜 (센서 멈춤 후보)</li>
  * </ul>
