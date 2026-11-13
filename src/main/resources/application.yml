@@ -108,6 +108,13 @@ climate:
     gap-minutes: 20,90      # 가상 방이 비어 있는 시간(최소,최대)
     stay-minutes: 50,120    # 가상 방에 머무는 시간(10분 단위로 맞춤)
     open-hours: 9,22        # 가상 손님이 오는 시간(밤에는 빈 방)
+  # 시뮬레이션 값을 core에도 보낸다(지영 11/13): core 자동 처리(미리 환기·더움·시간 넘김·센서 고장·예약 없는 사용)가 시연 때 돌게.
+  # CO2·온도·습도는 방마다 1분 평균을 1분에 한 번(source=SIM), 재실은 가상 방만 바뀔 때 + 살아 있다는 신호(core는 1분 끊기면 고장으로 봄)
+  core-feed:
+    enabled: ${CLIMATE_CORE_FEED_ENABLED:true}
+    url: ${CLIMATE_NOTIFY_CORE_URL:http://core:8080}   # 도커 안쪽 core (게이트웨이를 거치지 않아 사본이 되돌아오지 않음)
+    devices: ${MSPACE_DEVICES:}                       # core와 같은 값. 방마다 sensor-N 토큰을 고름, 없으면 안 보냄
+    occupancy-every: 20s
   appliances: []
   # 방 사용자 알림: core에 부탁(POST {core-url}/internal/air-alerts). 토큰이 비면 관리자 화면에만 보인다
   notify:

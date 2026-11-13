@@ -183,6 +183,26 @@ class ClimateConfig {
         return new SimFeeder(sim, intake, store, facade, List.copyOf(people.keySet()), backfill, judgeEvery, clock);
     }
 
+    /**
+     * 시뮬레이션 값을 core에도 보낸다 (POST /api/sensor-events, 지영 11/13). 장치 토큰은 core와 같은 MSPACE_DEVICES에서
+     * 방마다 sensor-N을 고른다. 토큰이 없는 방은 안 보낸다. 끄려면 CLIMATE_CORE_FEED_ENABLED=false
+     */
+    @Bean(destroyMethod = "close")
+    @ConditionalOnProperty(name = {"climate.sim.enabled", "climate.core-feed.enabled"}, havingValue = "true")
+    kr.ac.chosun.mspace.climate.adapter.out.CoreSensorFeed coreSensorFeed(SimFeeder feeder, HttpClient http,
+            @org.springframework.beans.factory.annotation.Value("${climate.core-feed.url:http://core:8080}") String url,
+            @org.springframework.beans.factory.annotation.Value("${climate.core-feed.devices:}") String devices,
+            @org.springframework.beans.factory.annotation.Value("${climate.core-feed.occupancy-every:20s}") Duration every) {
+        var feed = new kr.ac.chosun.mspace.climate.adapter.out.CoreSensorFeed(url,
+                kr.ac.chosun.mspace.climate.adapter.out.CoreSensorFeed.parse(devices), every, http);
+        if (feed.rooms().isEmpty()) {
+            org.slf4j.LoggerFactory.getLogger(ClimateConfig.class).info("core로 시뮬레이션 센서 값 안 보냄: sensor 장치 토큰 없음");
+        } else {
+            feeder.setOutbound(feed);
+        }
+        return feed;
+    }
+
     @Bean
     SensorRegistry sensorRegistry(MqttProperties m) {
         return new SensorRegistry(m.autoRooms() == null ? List.of() : m.autoRooms(), m.spots());
