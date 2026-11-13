@@ -93,6 +93,11 @@ public class SimFeeder {
         feed(now, now.getEpochSecond() % judgeEvery == 0, false);
     }
 
+    /** 공기 시뮬레이션 (가상 학생이 입실·퇴실을 알려 줄 때) */
+    public RoomSimulator simulator() {
+        return sim;
+    }
+
     /** 시연용: 이 방에 지금 상황을 일으키고 바로 판단한다. 없는 방이면 false */
     public synchronized boolean trigger(int roomId, RoomSimulator.Event kind) {
         return sim.trigger(roomId, kind, clock.instant());

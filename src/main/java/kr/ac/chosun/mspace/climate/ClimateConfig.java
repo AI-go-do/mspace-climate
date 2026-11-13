@@ -220,6 +220,62 @@ class ClimateConfig {
         return feed;
     }
 
+    /**
+     * 가상 학생 (재웅 11/14): 가상 방(2~5번)에 가상 학생들이 실제 core 예약·QR 입실·퇴실을 한다. 학생 앱이 실시간으로 움직이고
+     * 재실·공기 값이 예약과 맞는다. 가상 학생 목록(CLIMATE_SIM_STUDENTS="회원id:학번,…", infra "가상 학생 준비" 버튼이 넣음)이
+     * 비면 꺼지고 지금처럼 시뮬레이션이 손님을 만든다. QR 장치 토큰이 없는 방은 빼고 지금처럼 둔다
+     */
+    @Bean(destroyMethod = "close")
+    @ConditionalOnProperty(name = "climate.sim.enabled", havingValue = "true")
+    @org.springframework.boot.autoconfigure.condition.ConditionalOnExpression("'${climate.students.members:}' != ''")
+    kr.ac.chosun.mspace.climate.adapter.in.scheduler.StudentSimRunner studentSimRunner(SimFeeder feeder, HttpClient http, Clock clock,
+            ClimateProperties p,
+            @org.springframework.beans.factory.annotation.Value("${climate.students.members:}") String members,
+            @org.springframework.beans.factory.annotation.Value("${climate.core-feed.url:http://core:8080}") String url,
+            @org.springframework.beans.factory.annotation.Value("${climate.core-feed.devices:}") String devices,
+            @org.springframework.beans.factory.annotation.Value("${mspace.jwt.secret:}") String secret,
+            @org.springframework.beans.factory.annotation.Value("${mspace.jwt.issuer:mspace-core}") String issuer,
+            @org.springframework.beans.factory.annotation.Value("${climate.sim.real-rooms:}") List<Integer> real,
+            @org.springframework.beans.factory.annotation.Value("${climate.sim.big-rooms:5}") List<Integer> big,
+            @org.springframework.beans.factory.annotation.Value("${climate.sim.people-small:3,5}") List<Integer> small,
+            @org.springframework.beans.factory.annotation.Value("${climate.sim.people-big:5,8}") List<Integer> bigPeople,
+            @org.springframework.beans.factory.annotation.Value("${climate.sim.open-hours:9,22}") List<Integer> open,
+            @org.springframework.beans.factory.annotation.Value("${climate.students.gap-minutes:10,50}") List<Integer> gap,
+            @org.springframework.beans.factory.annotation.Value("${climate.students.every-seconds:10}") long every) {
+        var list = kr.ac.chosun.mspace.climate.adapter.out.CoreStudentDesk.parseStudents(members);
+        var qr = kr.ac.chosun.mspace.climate.adapter.out.CoreStudentDesk.parseQr(devices);
+        java.util.Set<Long> ids = new java.util.HashSet<>();
+        list.forEach(st -> ids.add(st.memberId()));
+        var desk = new kr.ac.chosun.mspace.climate.adapter.out.CoreStudentDesk(url, secret, issuer, ids, qr, http, clock);
+        java.util.Map<Integer, int[]> people = new java.util.LinkedHashMap<>();
+        for (int id : virtualRooms(p, real)) {
+            if (qr.containsKey(id)) {
+                List<Integer> r = big.contains(id) ? bigPeople : small;
+                people.put(id, new int[] {r.get(0), r.get(1)});
+            }
+        }
+        RoomSimulator sim = feeder.simulator();
+        sim.useExternalGuests(people.keySet());
+        var d = kr.ac.chosun.mspace.climate.application.StudentSimulator.Settings.defaults();
+        var settings = new kr.ac.chosun.mspace.climate.application.StudentSimulator.Settings(d.horizon(), gap.get(0), gap.get(1),
+                open.get(0), open.get(1), d.instantRate(), d.dayAheadRate(), d.cancelRate(), d.noShowRate(),
+                d.earlyLeaveRate(), d.autoCheckoutRate(), d.extendRate());
+        var students = new kr.ac.chosun.mspace.climate.application.StudentSimulator(desk,
+                new kr.ac.chosun.mspace.climate.application.StudentSimulator.Rooms() {
+                    @Override
+                    public void enter(int roomId, int n, java.time.Instant until) {
+                        sim.enter(roomId, n, until);
+                    }
+
+                    @Override
+                    public void leave(int roomId) {
+                        sim.leave(roomId);
+                    }
+                }, list, people, settings, SEOUL, System.nanoTime());
+        org.slf4j.LoggerFactory.getLogger(ClimateConfig.class).info("가상 학생 켬: {}명, 방 {}", list.size(), people.keySet());
+        return new kr.ac.chosun.mspace.climate.adapter.in.scheduler.StudentSimRunner(students, clock, every);
+    }
+
     @Bean
     SensorRegistry sensorRegistry(MqttProperties m) {
         return new SensorRegistry(m.autoRooms() == null ? List.of() : m.autoRooms(), m.spots());

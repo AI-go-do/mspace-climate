@@ -90,6 +90,8 @@ public class RoomSimulator {
      * @param assumed           방 번호 → 사람이 있을 때 가정하는 인원(공기 값 계산에만 씀)
      * @param eventEveryMinutes 평균 몇 분마다 사람이 있는 방에 상황(온도 상승)을 만들지
      */
+    private final java.util.Set<Integer> external = new java.util.HashSet<>();
+
     public RoomSimulator(Map<Integer, Integer> assumed, double eventEveryMinutes, ZoneId zone, long seed) {
         this(assumed, eventEveryMinutes, zone, seed, Visitors.NONE);
     }
@@ -111,7 +113,10 @@ public class RoomSimulator {
             r.co2 = 560 + random.nextGaussian() * 15;
             r.temp = ambient(r.id, now);
             r.hum = 47.5 + random.nextGaussian();
-            if (isVirtual(r.id)) {
+            if (external.contains(r.id)) {
+                r.occupied = false;
+                r.nextAt = null;
+            } else if (isVirtual(r.id)) {
                 // 시작할 때 절반쯤은 이미 쓰는 중으로(관제 화면이 처음부터 비어 보이지 않게)
                 if (minutesToClose(now) >= 30 && random.nextBoolean()) {
                     checkIn(r, now.minusSeconds(60L * random.nextInt(Math.max(1, visitors.stayMin()))));
@@ -127,6 +132,58 @@ public class RoomSimulator {
     /** 이 방은 시뮬레이션이 손님을 만드는 가상 방인지 */
     public boolean isVirtual(int roomId) {
         return visitors.people().containsKey(roomId);
+    }
+
+    /**
+     * 가상 방 손님을 바깥(가상 학생: core 실제 예약·QR 입실)이 정하게 한다(재웅 11/14 "사용자 화면도 실시간으로").
+     * 이 방들은 스스로 손님을 만들지 않고 {@link #enter}·{@link #leave}로만 바뀐다. 재실 신호(core로 보냄)는 그대로 낸다
+     */
+    public synchronized void useExternalGuests(java.util.Set<Integer> roomIds) {
+        external.clear();
+        roomIds.stream().filter(this::isVirtual).forEach(external::add);
+        for (int id : external) {
+            Room r = rooms.get(id);
+            if (r != null && r.occupied) {
+                r.occupied = false;
+                r.people = null;
+                r.nextAt = null;
+            }
+        }
+    }
+
+    /** 바깥이 손님을 정하는 방인지 */
+    public boolean isExternal(int roomId) {
+        return external.contains(roomId);
+    }
+
+    /** 바깥 손님 입실(또는 인원·나갈 시각 고침). until은 화면에 보이는 나갈 예정 시각 */
+    public synchronized void enter(int roomId, int people, Instant until) {
+        Room r = rooms.get(roomId);
+        if (r == null || !external.contains(roomId)) {
+            return;
+        }
+        r.occupied = true;
+        r.people = people;
+        r.nextAt = until;
+    }
+
+    /** 바깥 손님 퇴실 */
+    public synchronized void leave(int roomId) {
+        Room r = rooms.get(roomId);
+        if (r == null || !external.contains(roomId)) {
+            return;
+        }
+        r.occupied = false;
+        r.people = null;
+        r.nextAt = null;
+        r.event = null;
+        r.eventLeft = 0;
+    }
+
+    /** 지금 사람이 있는지(시뮬레이션이 아는 값) */
+    public synchronized boolean occupied(int roomId) {
+        Room r = rooms.get(roomId);
+        return r != null && r.occupied;
     }
 
     /**
@@ -199,7 +256,7 @@ public class RoomSimulator {
 
     /** 가상 방: 때가 되면 들어오고 나간다. 문 닫는 시간에는 안 온다 */
     private void visit(Room r, Instant now) {
-        if (r.nextAt == null || now.isBefore(r.nextAt)) {
+        if (external.contains(r.id) || r.nextAt == null || now.isBefore(r.nextAt)) {
             return;
         }
         if (r.occupied) {
@@ -279,7 +336,7 @@ public class RoomSimulator {
         if (r == null) {
             return false;
         }
-        if (isVirtual(roomId) && !r.occupied) {
+        if (isVirtual(roomId) && !external.contains(roomId) && !r.occupied) {
             checkIn(r, now);
             r.nextAt = Instant.ofEpochMilli(Math.max(r.nextAt.toEpochMilli(),
                     now.plusSeconds(60L * (long) (EVENT_MINUTES + 30)).toEpochMilli()));
