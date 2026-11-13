@@ -118,7 +118,7 @@ public class RoomSimulator {
                 } else {
                     r.occupied = false;
                     r.nextAt = minutesToClose(now) >= 30 ? now.plusSeconds(60L * between(0, visitors.gapMax()))
-                            : nextOpen(now).plusSeconds(60L * between(0, visitors.gapMax()));
+                            : firstGuest(now);
                 }
             }
         }
@@ -209,7 +209,7 @@ public class RoomSimulator {
             r.eventLeft = 0;
             r.nextAt = now.plusSeconds(60L * between(visitors.gapMin(), visitors.gapMax()));
         } else if (minutesToClose(now) < 30) {
-            r.nextAt = nextOpen(now).plusSeconds(60L * between(0, visitors.gapMax()));
+            r.nextAt = firstGuest(now);
         } else {
             checkIn(r, now);
         }
@@ -233,6 +233,11 @@ public class RoomSimulator {
             return 0;
         }
         return (visitors.closeHour() - t.getHour()) * 60L - t.getMinute();
+    }
+
+    /** 문 연 뒤 첫 손님: 여는 시각부터 빈 틈 최소(20분) 안에. 아침에 방이 1시간 넘게 비어 보이지 않게(재웅 11/13 9:18 "다 비었다") */
+    private Instant firstGuest(Instant now) {
+        return nextOpen(now).plusSeconds(60L * between(0, visitors.gapMin()));
     }
 
     /** 다음 문 여는 시각 */

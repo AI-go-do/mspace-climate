@@ -206,7 +206,7 @@ class RoomSimulatorTest {
     }
 
     @Test
-    @DisplayName("가상 손님은 문 여는 시간(9~22시)에만 온다: 밤 23시~아침 9시에는 빈 방")
+    @DisplayName("가상 손님은 문 여는 시간(9~22시)에만 온다: 밤 23시~아침 9시에는 빈 방, 아침 첫 손님은 9시 20분 안에")
     void visitorsOnlyInOpenHours() {
         // given: 2번 가상 방, 22:00 KST부터
         var visitors = new RoomSimulator.Visitors(Map.of(2, new int[] {3, 5}), 20, 90, 50, 120, 9, 22);
@@ -216,6 +216,7 @@ class RoomSimulatorTest {
         Instant t = night;
         boolean nightBusy = false;
         boolean dayBusy = false;
+        Instant firstIn = null;
         // when: 다음 날 15시까지
         for (int i = 0; i < 17 * 60; i++) {
             t = t.plusSeconds(60);
@@ -226,11 +227,15 @@ class RoomSimulatorTest {
                 nightBusy |= busy;
             } else if (h >= 9) {
                 dayBusy |= busy;
+                if (busy && firstIn == null) {
+                    firstIn = t;
+                }
             }
         }
         // then
         assertThat(nightBusy).isFalse();
         assertThat(dayBusy).isTrue();
+        assertThat(firstIn).isBefore(Instant.parse("2026-11-13T00:21:00Z"));
     }
 
     @Test
