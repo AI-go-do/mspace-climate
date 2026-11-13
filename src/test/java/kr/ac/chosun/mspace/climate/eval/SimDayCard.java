@@ -88,10 +88,11 @@ public final class SimDayCard {
         ClimateFacade facade = new ClimateFacade(List.copyOf(devices), props.holdManual(), 500, clock);
         List<Alert> sent = new ArrayList<>();
         AlertLog alerts = new AlertLog(props.alertEvery(), 500, sent::add, clock);
-        // dev와 같게: GRU 예측(못 하면 직선) + 10분 전 알림 (README 예측 모델 비교 3판)
+        // dev와 같게: GRU 예측(최근 3분 평균 출발 + 직선 25%, 못 하면 직선) + 10분 전 알림 (README 예측 모델 비교 16판)
         TrendForecaster trend = new TrendForecaster(Duration.ofMinutes(30), 5);
         var gru = kr.ac.chosun.mspace.climate.adapter.out.model.GruForecaster.load(SimDayCard.class.getClassLoader(), trend, SEOUL);
-        RoomAnalyzer analyzer = new RoomAnalyzer(props, new BaselineCalculator(SEOUL, 2.5, 30), gru == null ? trend : gru,
+        RoomAnalyzer analyzer = new RoomAnalyzer(props, new BaselineCalculator(SEOUL, 2.5, 30),
+                gru == null ? trend : new kr.ac.chosun.mspace.climate.domain.BlendForecaster(gru, trend, 0.25),
                 new AnomalyDetector(Duration.ofMinutes(10), Duration.ofMinutes(20)), clock);
         DecisionBook book = new DecisionBook(500);
         Set<String> seen = new HashSet<>();

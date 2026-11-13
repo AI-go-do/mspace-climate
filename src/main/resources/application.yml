@@ -51,6 +51,8 @@ climate:
   # 직선만 쓰려면 CLIMATE_MODEL_ENABLED=false. 두 방식 비교는 README "예측 모델 비교"
   model:
     enabled: ${CLIMATE_MODEL_ENABLED:true}
+    anchor-minutes: 3     # 예측선은 최근 3분 평균에서 출발 (1분 튐에 헛알림 안 나게, README 예측 모델 비교 7판)
+    trend-weight: 0.25    # GRU 예측선에 최근 30분 직선 25% 섞기 (아침 급상승 헛알림 줄이기, 16판)
   stuck: 20m             # 20분 동안 값이 똑같으면 센서 멈춤 후보
   offline: 10m           # 10분 넘게 값이 없으면 끊김
   empty-off: 10m         # 빈 방 10분이면 기기 끔

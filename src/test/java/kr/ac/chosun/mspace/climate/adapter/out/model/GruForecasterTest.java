@@ -88,4 +88,21 @@ class GruForecasterTest {
         Map<Metric, List<Sample>> small = rising(180, 120, 130);
         assertThat(gru.forecast(Metric.CO2, small, b, NOW).method()).isEqualTo(Forecast.GRU);
     }
+
+    @Test
+    @DisplayName("1분 값 하나가 튀어도 예측선은 최근 3분 평균에서 출발해 덜 뛴다")
+    void anchorSmoothsOneSpike() {
+        // given: 오르던 CO2의 마지막 1분 값만 +60ppm 튐(센서 오차)
+        Map<Metric, List<Sample>> h = rising(180, -1, -1);
+        List<Sample> co2 = h.get(Metric.CO2);
+        Sample last = co2.remove(co2.size() - 1);
+        co2.add(new Sample(last.at(), last.value() + 60));
+        GruForecaster one = GruForecaster.load(getClass().getClassLoader(), trend, SEOUL, 1);
+        Baseline b = new Baseline(700.0, 100.0, null, 1100.0, 100, false, "HOUR");
+        // when
+        double spiked = one.forecast(Metric.CO2, h, b, NOW).points().get(0).value();
+        double smooth = gru.forecast(Metric.CO2, h, b, NOW).points().get(0).value();
+        // then: 3분 창(05:59:30 뒤)의 06:00·06:01 두 값 평균에서 출발 → 튄 60ppm 중 절반 정도만 따라감
+        assertThat(spiked - smooth).isCloseTo(31, within(0.5));
+    }
 }

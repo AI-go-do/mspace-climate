@@ -71,17 +71,24 @@ class ClimateConfig {
 
     /**
      * 예측: 실습 시계열 모델(GRU)이 먼저, 못 하면(습도·값 부족·모델 없음) 최근 30분 직선(재웅 11/13).
-     * climate.model.enabled=false면 직선만
+     * climate.model.enabled=false면 직선만. anchor-minutes: 예측선을 최근 몇 분 평균에서 출발시킬지(1분 튐 누르기),
+     * trend-weight: GRU 예측선에 최근 30분 직선을 얼마나 섞을지 (README 예측 모델 비교 7·16판)
      */
     @Bean
     Forecaster forecaster(ClimateProperties p,
-                          @org.springframework.beans.factory.annotation.Value("${climate.model.enabled:true}") boolean model) {
+                          @org.springframework.beans.factory.annotation.Value("${climate.model.enabled:true}") boolean model,
+                          @org.springframework.beans.factory.annotation.Value("${climate.model.anchor-minutes:3}") int anchor,
+                          @org.springframework.beans.factory.annotation.Value("${climate.model.trend-weight:0.25}") double weight) {
         Forecaster trend = new TrendForecaster(p.trendWindow(), p.minTrendPoints());
         if (!model) {
             return trend;
         }
-        Forecaster gru = kr.ac.chosun.mspace.climate.adapter.out.model.GruForecaster.load(getClass().getClassLoader(), trend, SEOUL);
-        return gru == null ? trend : gru;
+        Forecaster gru = kr.ac.chosun.mspace.climate.adapter.out.model.GruForecaster.load(getClass().getClassLoader(), trend, SEOUL,
+                anchor);
+        if (gru == null) {
+            return trend;
+        }
+        return weight > 0 ? new kr.ac.chosun.mspace.climate.domain.BlendForecaster(gru, trend, weight) : gru;
     }
 
     @Bean
